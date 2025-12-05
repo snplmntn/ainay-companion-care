@@ -52,8 +52,8 @@ function showNotification(alarm: MedicationAlarm): void {
 
   const notification = new Notification(`Time for ${alarm.medicationName}`, {
     body: `Take ${alarm.dosage} now`,
-    icon: "/icon.png",
-    badge: "/icon.png",
+    icon: "/icon.ico",
+    badge: "/icon.ico",
     tag: alarm.id,
     requireInteraction: true,
     vibrate: [200, 100, 200],

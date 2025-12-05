@@ -126,14 +126,13 @@ const NotFound = () => {
             className="text-senior-2xl text-foreground fade-in"
             style={{ animationDelay: "0.3s" }}
           >
-            Oops! This page wandered off
+            Oops! We can't find that page
           </h1>
           <p
             className="text-senior-lg text-muted-foreground fade-in"
             style={{ animationDelay: "0.4s" }}
           >
-            Don't worry, AInay is here to help you find your way back. The page
-            you're looking for doesn't seem to exist.
+            Don't worry! Let me help you get back. The page you're looking for isn't here.
           </p>
           <p
             className="text-sm text-muted-foreground/70 font-mono bg-muted/50 px-4 py-2 rounded-xl inline-block fade-in"
@@ -145,25 +144,25 @@ const NotFound = () => {
 
         {/* Action buttons */}
         <div
-          className="flex flex-col sm:flex-row gap-3 justify-center fade-in"
+          className="flex flex-col sm:flex-row gap-4 justify-center fade-in"
           style={{ animationDelay: "0.5s" }}
         >
           <Button
             variant="coral"
             size="xl"
             onClick={() => navigate("/dashboard")}
-            className="gap-2"
+            className="gap-2 text-lg"
           >
-            <Home className="w-5 h-5" />
-            Go to Dashboard
+            <Home className="w-6 h-6" />
+            Go Home
           </Button>
           <Button
             variant="outline"
             size="lg"
             onClick={() => navigate(-1)}
-            className="gap-2"
+            className="gap-2 text-lg"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-6 h-6" />
             Go Back
           </Button>
         </div>
@@ -173,23 +172,23 @@ const NotFound = () => {
           className="mt-12 pt-8 border-t border-border/50 fade-in"
           style={{ animationDelay: "0.6s" }}
         >
-          <p className="text-sm text-muted-foreground mb-4">
-            Looking for something specific?
+          <p className="text-base text-muted-foreground mb-4">
+            Need help finding something?
           </p>
-          <div className="flex flex-wrap justify-center gap-4">
+          <div className="flex flex-wrap justify-center gap-6">
             <button
               onClick={() => navigate("/ask")}
-              className="flex items-center gap-2 text-sm text-primary hover:text-primary/80 transition-colors font-medium"
+              className="flex items-center gap-2 text-base text-primary hover:text-primary/80 transition-colors font-semibold"
             >
-              <MessageCircle className="w-4 h-4" />
-              Ask AInay
+              <MessageCircle className="w-5 h-5" />
+              Talk to AInay
             </button>
             <button
               onClick={() => navigate("/timeline")}
-              className="flex items-center gap-2 text-sm text-secondary hover:text-secondary/80 transition-colors font-medium"
+              className="flex items-center gap-2 text-base text-secondary hover:text-secondary/80 transition-colors font-semibold"
             >
-              <HelpCircle className="w-4 h-4" />
-              View Timeline
+              <HelpCircle className="w-5 h-5" />
+              My Medicines
             </button>
           </div>
         </div>
@@ -200,8 +199,8 @@ const NotFound = () => {
         className="absolute bottom-6 left-0 right-0 text-center fade-in"
         style={{ animationDelay: "0.7s" }}
       >
-        <p className="text-sm text-muted-foreground">
-          AInay — Your Digital Caretaker 💚
+        <p className="text-base text-muted-foreground">
+          AInay — Here to Help You! 💚
         </p>
       </div>
     </div>

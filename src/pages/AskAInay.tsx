@@ -9,7 +9,7 @@ export default function AskAInay() {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col lg:ml-20 xl:ml-24">
       {/* Header */}
       <header className="bg-card border-b border-border p-4 flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
@@ -18,21 +18,21 @@ export default function AskAInay() {
 
         <div className="flex items-center gap-3 flex-1">
           <img
-            src="/icon.png"
+            src="/icon.ico"
             alt="AInay"
-            className="w-12 h-12 rounded-full object-cover"
+            className="w-14 h-14 rounded-full object-cover"
           />
           <div>
-            <h1 className="text-senior-lg font-bold">Ask AInay</h1>
-            <p className="text-sm text-muted-foreground">
-              Your digital caretaker
+            <h1 className="text-senior-lg font-bold">Talk to AInay</h1>
+            <p className="text-base text-muted-foreground">
+              I'm here to help you! 💚
             </p>
           </div>
         </div>
       </header>
 
       {/* Chat Interface */}
-      <div className="flex-1 flex flex-col pb-20">
+      <div className="flex-1 flex flex-col pb-20 lg:pb-4">
         <ChatInterface />
       </div>
 

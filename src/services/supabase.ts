@@ -199,14 +199,17 @@ export async function findPatientByLinkCode(linkCode: string): Promise<{
 // ============ MEDICATION FUNCTIONS ============
 
 /**
- * Get all medications for a user
+ * Get all medications for a user (with doses)
  */
 export async function getMedications(
   userId: string
-): Promise<{ medications: Medication[]; error: string | null }> {
+): Promise<{ medications: (Medication & { doses?: ScheduleDose[] })[]; error: string | null }> {
   const { data, error } = await supabase
     .from("medications")
-    .select("*")
+    .select(`
+      *,
+      doses:schedule_doses(*)
+    `)
     .eq("user_id", userId)
     .eq("is_active", true)
     .order("time", { ascending: true });
@@ -829,7 +832,7 @@ export async function getLinkedCompanions(
 
   const companions: LinkedCompanion[] = linksArray.map((link) => {
     const profile = profileMap.get(link.companion_id);
-    // Get the name, falling back to email username or "Caregiver" if empty/missing
+    // Get the name, falling back to email username or "Companion" if empty/missing
     let displayName = profile?.name;
     if (!displayName || displayName.trim() === "" || displayName === "User") {
       // Try to extract name from email (before @)
@@ -838,7 +841,7 @@ export async function getLinkedCompanions(
         // Capitalize first letter
         displayName = emailName.charAt(0).toUpperCase() + emailName.slice(1);
       } else {
-        displayName = "Caregiver";
+        displayName = "Companion";
       }
     }
 
@@ -905,13 +908,16 @@ export async function getLinkedPatients(
   }>;
   const profileMap = new Map(profilesArray.map((p) => [p.id, p]));
 
-  // OPTIMIZATION: Batch fetch all medications for all patients in ONE query
+  // OPTIMIZATION: Batch fetch all medications WITH DOSES for all patients in ONE query
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let allMedications: any[] = [];
   if (patientIds.length > 0) {
     const { data: medsData, error: medsError } = await supabase
       .from("medications")
-      .select("*")
+      .select(`
+        *,
+        doses:schedule_doses(*)
+      `)
       .in("user_id", patientIds)
       .eq("is_active", true)
       .order("time", { ascending: true });

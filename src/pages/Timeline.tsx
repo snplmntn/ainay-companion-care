@@ -22,7 +22,7 @@ export default function Timeline() {
   });
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-24 lg:pb-8 lg:ml-20 xl:ml-24">
       {/* Header */}
       <header className="bg-card border-b border-border p-4">
         <div className="flex items-center gap-4 mb-4">
@@ -30,10 +30,10 @@ export default function Timeline() {
             <ArrowLeft className="w-6 h-6" />
           </Button>
           <div>
-            <h1 className="text-senior-xl font-bold">Medication Schedule</h1>
+            <h1 className="text-senior-xl font-bold">My Medicines</h1>
             <div className="flex items-center gap-2 text-muted-foreground">
-              <Calendar className="w-4 h-4" />
-              <span className="text-senior-sm">{today}</span>
+              <Calendar className="w-5 h-5" />
+              <span className="text-base">{today}</span>
             </div>
           </div>
         </div>
@@ -41,40 +41,40 @@ export default function Timeline() {
 
       {/* Tab Switcher */}
       {medications.length > 0 && (
-        <div className="px-4 py-2 bg-card border-b border-border">
+        <div className="px-4 py-3 bg-card border-b border-border">
           <div className="flex gap-2">
             <button
               onClick={() => setActiveTab('today')}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-3.5 px-3 rounded-xl text-base font-semibold transition-all flex items-center justify-center gap-2 ${
                 activeTab === 'today'
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-muted text-muted-foreground hover:bg-muted/80'
               }`}
             >
-              <Calendar className="w-4 h-4" />
+              <Calendar className="w-5 h-5" />
               Today
             </button>
             <button
               onClick={() => setActiveTab('upcoming')}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-3.5 px-3 rounded-xl text-base font-semibold transition-all flex items-center justify-center gap-2 ${
                 activeTab === 'upcoming'
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-muted text-muted-foreground hover:bg-muted/80'
               }`}
             >
-              <CalendarDays className="w-4 h-4" />
-              Upcoming
+              <CalendarDays className="w-5 h-5" />
+              This Week
             </button>
             <button
               onClick={() => setActiveTab('analytics')}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-3.5 px-3 rounded-xl text-base font-semibold transition-all flex items-center justify-center gap-2 ${
                 activeTab === 'analytics'
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-muted text-muted-foreground hover:bg-muted/80'
               }`}
             >
-              <BarChart3 className="w-4 h-4" />
-              Stats
+              <BarChart3 className="w-5 h-5" />
+              History
             </button>
           </div>
         </div>
@@ -103,7 +103,7 @@ export default function Timeline() {
       <Button
         variant="coral"
         size="icon-xl"
-        className="fixed bottom-24 right-4 rounded-full shadow-2xl shadow-primary/40 z-30"
+        className="fixed bottom-24 lg:bottom-8 right-4 rounded-full shadow-2xl shadow-primary/40 z-30"
         onClick={() => setShowAddModal(true)}
       >
         <Plus className="w-10 h-10" />

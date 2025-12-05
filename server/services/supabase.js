@@ -307,7 +307,7 @@ export async function getNotificationsSentToday(medicationIds, date) {
     .from('notification_history')
     .select('medication_id, companion_id, type')
     .in('medication_id', medicationIds)
-    .in('type', ['missed_medication', 'missed_medication_push_first', 'missed_medication_push_second', 'missed_medication_email'])
+    .in('type', ['missed_medication', 'missed_medication_push_first', 'missed_medication_push_second', 'missed_medication_telegram', 'missed_medication_email'])
     .gte('sent_at', startOfDay.toISOString())
     .lte('sent_at', endOfDay.toISOString());
 
@@ -325,6 +325,8 @@ export async function getNotificationsSentToday(medicationIds, date) {
       sentPairs.add(`${d.medication_id}|${d.companion_id}|push_first`);
     } else if (d.type === 'missed_medication_push_second') {
       sentPairs.add(`${d.medication_id}|${d.companion_id}|push_second`);
+    } else if (d.type === 'missed_medication_telegram') {
+      sentPairs.add(`${d.medication_id}|${d.companion_id}|telegram`);
     } else if (d.type === 'missed_medication_email' || d.type === 'missed_medication') {
       sentPairs.add(`${d.medication_id}|${d.companion_id}|email`);
     }
@@ -448,12 +450,14 @@ export async function autoExpireAllMedications() {
 export async function getPatientsWithUpcomingMedications(minutesBefore = 5) {
   const now = new Date();
   
-  // Step 1: Get all patients with email reminders enabled
+  // Step 1: Get all patients with reminders enabled (email OR telegram)
+  // We fetch all patients with role=patient and filter later for those who have
+  // email_reminder_enabled=true OR telegram_chat_id set
   const { data: patients, error: patientError } = await supabase
     .from('profiles')
-    .select('id, name, email, email_reminder_enabled, email_reminder_minutes')
+    .select('id, name, email, email_reminder_enabled, email_reminder_minutes, telegram_chat_id')
     .eq('role', 'patient')
-    .eq('email_reminder_enabled', true);
+    .or('email_reminder_enabled.eq.true,telegram_chat_id.not.is.null');
 
   if (patientError) {
     console.error('[Supabase] Error fetching patients:', patientError);

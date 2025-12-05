@@ -19,6 +19,39 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+// Stat card for the problem section
+function StatCard({
+  value,
+  label,
+  description,
+  accent,
+}: {
+  value: string;
+  label: string;
+  description: string;
+  accent: "coral" | "teal" | "amber" | "rose";
+}) {
+  const accentColors = {
+    coral: "from-primary to-coral",
+    teal: "from-secondary to-teal",
+    amber: "from-amber-500 to-orange-400",
+    rose: "from-pink-500 to-rose-500",
+  };
+
+  return (
+    <div className="relative group">
+      <div className="absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-10 rounded-3xl transition-opacity duration-300" />
+      <div className="bg-card rounded-3xl p-6 md:p-8 border border-border/50 hover:border-primary/30 transition-all duration-300 h-full">
+        <div className={`text-5xl md:text-6xl lg:text-7xl font-black bg-gradient-to-r ${accentColors[accent]} bg-clip-text text-transparent mb-2`}>
+          {value}
+        </div>
+        <div className="text-xl md:text-2xl font-bold text-foreground mb-2">{label}</div>
+        <p className="text-muted-foreground text-sm md:text-base leading-relaxed">{description}</p>
+      </div>
+    </div>
+  );
+}
+
 // Animated pill component for hero
 function FloatingPill({ delay, className }: { delay: number; className?: string }) {
   return (
@@ -305,10 +338,161 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Features Section */}
-      <section className="relative py-20 md:py-32 bg-card">
-        <div className="max-w-7xl mx-auto px-4 md:px-8">
+      {/* The Problem Section - Why We Built This */}
+      <section className="relative py-20 md:py-32 bg-card overflow-hidden">
+        {/* Subtle background pattern */}
+        <div className="absolute inset-0 bg-dots opacity-20" />
+        <div className="absolute top-0 left-0 w-1/3 h-1/2 bg-gradient-to-br from-rose-500/5 to-transparent rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-0 w-1/3 h-1/2 bg-gradient-to-tl from-primary/5 to-transparent rounded-full blur-3xl" />
+
+        <div className="relative z-10 max-w-7xl mx-auto px-4 md:px-8">
+          {/* Section Header */}
           <div className="text-center mb-16">
+            <div className="inline-flex items-center gap-2 bg-rose-500/10 rounded-full px-4 py-2 mb-6">
+              <Heart className="w-4 h-4 text-rose-500" />
+              <span className="text-sm font-semibold text-rose-600 dark:text-rose-400">Why We Built AInay</span>
+            </div>
+            <h2 className="text-3xl md:text-5xl font-extrabold mb-6 text-foreground leading-tight">
+              A Silent Crisis in <br className="hidden md:block" />
+              <span className="bg-gradient-to-r from-rose-500 to-primary bg-clip-text text-transparent">
+                Filipino Healthcare
+              </span>
+            </h2>
+            <p className="text-lg md:text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed">
+              The World Health Organization states that improving medication adherence would have a 
+              <span className="font-semibold text-foreground"> greater impact on population health</span> than 
+              any improvement in specific medical treatments. Yet in the Philippines, we're failing our elders.
+            </p>
+          </div>
+
+          {/* Stats Grid */}
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
+            <StatCard
+              value="76%"
+              label="Non-Adherent"
+              description="A Cebu study found only 23.8% of hypertensive adults properly follow their medication regimen."
+              accent="rose"
+            />
+            <StatCard
+              value="27%"
+              label="Forget Doses"
+              description="Unintentional non-adherence—primarily from forgetfulness and confusion—affects over a quarter of Filipino seniors."
+              accent="coral"
+            />
+            <StatCard
+              value="37%"
+              label="On 5+ Medicines"
+              description="Polypharmacy affects nearly 4 in 10 Filipino seniors, increasing confusion and risk of harmful interactions."
+              accent="amber"
+            />
+            <StatCard
+              value="1.39×"
+              label="Higher Risk"
+              description="Polypharmacy increases cognitive impairment risk by 39% (OR=1.39), creating a vicious cycle of forgetfulness."
+              accent="teal"
+            />
+          </div>
+
+          {/* The Deeper Insight */}
+          <div className="bg-gradient-to-br from-primary/5 via-background to-secondary/5 rounded-3xl p-8 md:p-12 border border-border/50">
+            <div className="grid lg:grid-cols-2 gap-8 items-center">
+              <div>
+                <h3 className="text-2xl md:text-3xl font-bold mb-4 text-foreground">
+                  The Vicious Cycle We're Breaking
+                </h3>
+                <p className="text-muted-foreground mb-6 leading-relaxed text-lg">
+                  Filipino seniors face a perfect storm: <span className="text-foreground font-medium">complex medication schedules</span> exceed 
+                  their cognitive capacity, leading to missed doses. This non-adherence worsens their conditions, 
+                  often requiring <span className="text-foreground font-medium">even more medications</span>—further straining their memory.
+                </p>
+                <div className="space-y-4">
+                  <div className="flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-full bg-rose-500/10 flex items-center justify-center flex-shrink-0 mt-1">
+                      <span className="text-rose-500 font-bold">1</span>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-foreground">The "Treat or Eat" Dilemma</p>
+                      <p className="text-sm text-muted-foreground">28.6% skip medications intentionally due to financial constraints</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0 mt-1">
+                      <span className="text-amber-500 font-bold">2</span>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-foreground">Dosage Confusion</p>
+                      <p className="text-sm text-muted-foreground">Elderly patients report high confusion about when and how much to take</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-full bg-secondary/10 flex items-center justify-center flex-shrink-0 mt-1">
+                      <span className="text-secondary font-bold">3</span>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-foreground">Caregiver Burden</p>
+                      <p className="text-sm text-muted-foreground">OFW families struggle to monitor loved ones from thousands of miles away</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="relative">
+                <div className="bg-card rounded-2xl p-6 md:p-8 shadow-xl border border-border/50">
+                  <div className="text-center mb-6">
+                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-primary to-secondary mb-4">
+                      <Sparkles className="w-8 h-8 text-white" />
+                    </div>
+                    <h4 className="text-xl font-bold text-foreground">AInay's Mission</h4>
+                  </div>
+                  <blockquote className="text-lg text-muted-foreground italic text-center leading-relaxed">
+                    "To ensure no Filipino senior suffers from preventable health decline simply because 
+                    they forgot to take their medicine—or couldn't remember how."
+                  </blockquote>
+                  <div className="mt-6 pt-6 border-t border-border">
+                    <div className="flex items-center justify-center gap-6 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-primary" />
+                        <span>Smart Reminders</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Mic className="w-4 h-4 text-primary" />
+                        <span>Voice Assistant</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Users className="w-4 h-4 text-primary" />
+                        <span>Family Connect</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                {/* Decorative elements */}
+                <div className="absolute -top-4 -right-4 w-24 h-24 bg-gradient-to-br from-primary/20 to-secondary/20 rounded-full blur-2xl -z-10" />
+                <div className="absolute -bottom-4 -left-4 w-32 h-32 bg-gradient-to-br from-coral/20 to-primary/20 rounded-full blur-2xl -z-10" />
+              </div>
+            </div>
+          </div>
+
+          {/* WHO Citation */}
+          <div className="mt-8 text-center">
+            <p className="text-xs md:text-sm text-muted-foreground/60">
+              Data sourced from WHO Global Adherence Report, Cebu South Medical Center Study, 
+              and research on Filipino senior polypharmacy prevalence
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section className="relative py-20 md:py-32 bg-gradient-to-b from-card via-background to-background overflow-hidden">
+        {/* Subtle decorative elements */}
+        <div className="absolute top-0 left-1/4 w-72 h-72 bg-primary/5 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-secondary/5 rounded-full blur-3xl" />
+        
+        <div className="relative z-10 max-w-7xl mx-auto px-4 md:px-8">
+          <div className="text-center mb-16">
+            <div className="inline-flex items-center gap-2 bg-primary/10 rounded-full px-4 py-2 mb-6">
+              <Sparkles className="w-4 h-4 text-primary" />
+              <span className="text-sm font-semibold text-primary">Our Solution</span>
+            </div>
             <h2 className="text-3xl md:text-5xl font-extrabold mb-4 text-foreground">
               Everything You Need to Stay Healthy
             </h2>
@@ -365,7 +549,7 @@ export default function Landing() {
       </section>
 
       {/* How It Works Section */}
-      <section id="how-it-works" className="relative py-20 md:py-32 bg-background overflow-hidden">
+      <section id="how-it-works" className="relative py-20 md:py-32 bg-card overflow-hidden">
         {/* Background decoration */}
         <div className="absolute inset-0 bg-dots opacity-30" />
         <div className="absolute top-0 right-0 w-1/2 h-1/2 bg-gradient-to-bl from-primary/10 to-transparent rounded-full blur-3xl" />

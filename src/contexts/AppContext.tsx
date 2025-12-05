@@ -15,6 +15,7 @@ import type {
   NextDayMode,
   LinkedPatient,
   LinkedCompanion,
+  PatientCompanionLink,
   UserRole,
 } from "@/types";
 import type { EnhancedMedication } from "@/modules/medication";
@@ -72,7 +73,7 @@ interface AppContextType {
   linkCode: string | null;
   linkedPatients: LinkedPatient[];
   linkedCompanions: LinkedCompanion[];
-  pendingRequests: never[]; // Kept for backward compatibility, always empty
+  pendingRequests: PatientCompanionLink[]; // Kept for backward compatibility, always empty
   requestLinkToPatient: (
     linkCode: string
   ) => Promise<{ success: boolean; patientName?: string; error?: string }>;
@@ -86,6 +87,9 @@ interface AppContextType {
     email_reminder_enabled?: boolean;
     email_reminder_minutes?: number;
   }) => Promise<{ error: string | null }>;
+
+  // Profile updates
+  updateProfileName: (name: string) => Promise<{ error: string | null }>;
 
   // Auth actions
   signOut: () => Promise<void>;
@@ -587,6 +591,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return { error };
   };
 
+  // Update profile name
+  const updateProfileName = async (name: string): Promise<{ error: string | null }> => {
+    if (!user) {
+      return { error: "Not authenticated" };
+    }
+
+    const { error } = await updateProfile(user.id, { name });
+    
+    if (!error && profile) {
+      // Update local profile and userName state
+      setProfile({ ...profile, name });
+      setUserName(name);
+    }
+
+    return { error };
+  };
+
   // Sign out
   const signOut = async () => {
     if (isSupabaseConfigured) {
@@ -641,6 +662,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         unlinkPatientOrCompanion,
         refreshCompanionData,
         updateNotificationSettings,
+        updateProfileName,
         signOut,
       }}
     >

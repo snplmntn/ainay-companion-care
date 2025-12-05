@@ -18,16 +18,23 @@ import { Input } from "@/components/ui/input";
 import { useApp } from "@/contexts/AppContext";
 import { toast } from "@/hooks/use-toast";
 
+import type { LinkedPatient } from "@/types";
+
 interface Props {
   onPatientSelect?: (patientId: string) => void;
+  /** Optional realtime patient data to use instead of context data */
+  realtimePatients?: LinkedPatient[];
 }
 
-export function PatientLinkManager({ onPatientSelect }: Props) {
+export function PatientLinkManager({
+  onPatientSelect,
+  realtimePatients,
+}: Props) {
   const navigate = useNavigate();
   const {
     userRole,
     linkCode,
-    linkedPatients,
+    linkedPatients: contextPatients,
     linkedCompanions,
     pendingRequests,
     requestLinkToPatient,
@@ -35,6 +42,9 @@ export function PatientLinkManager({ onPatientSelect }: Props) {
     rejectLinkRequest,
     unlinkPatientOrCompanion,
   } = useApp();
+
+  // Use realtime data if provided, otherwise fall back to context
+  const linkedPatients = realtimePatients || contextPatients;
 
   const [linkInput, setLinkInput] = useState("");
   const [isLinking, setIsLinking] = useState(false);
@@ -368,10 +378,21 @@ export function PatientLinkManager({ onPatientSelect }: Props) {
           <div className="space-y-3">
             {linkedPatients.map((patient) => {
               const isPending = patient.linkStatus === "pending";
-              const todayTaken = patient.medications.filter(
-                (m) => m.taken
-              ).length;
-              const todayTotal = patient.medications.length;
+
+              // Calculate DOSE-level stats (not medication count)
+              const { todayTaken, todayTotal } = patient.medications.reduce(
+                (acc, med) => {
+                  if (med.doses && med.doses.length > 0) {
+                    acc.todayTotal += med.doses.length;
+                    acc.todayTaken += med.doses.filter((d) => d.taken).length;
+                  } else {
+                    acc.todayTotal += 1;
+                    acc.todayTaken += med.taken ? 1 : 0;
+                  }
+                  return acc;
+                },
+                { todayTaken: 0, todayTotal: 0 }
+              );
 
               return (
                 <button

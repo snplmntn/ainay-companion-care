@@ -1,18 +1,31 @@
 // ============================================
 // Add Medicine For Patient Modal
 // Allows companions to add medications for their linked patients
+// Supports: Scan (camera/upload), Talk (voice), and Type (manual) modes
 // ============================================
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   X,
   Plus,
   Pill,
   ChevronDown,
+  ChevronRight,
   Image as ImageIcon,
   Loader2,
   Check,
   Clock,
+  Camera,
+  Mic,
+  Keyboard,
+  Upload,
+  Trash2,
+  Edit2,
+  AlertTriangle,
+  AlertOctagon,
+  Info,
+  Stethoscope,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,10 +33,20 @@ import { toast } from "@/hooks/use-toast";
 import { searchDrugs, type Drug } from "@/services/drugDatabase";
 import type { MedicationCategory, FrequencyType, NextDayMode, LinkedPatient } from "@/types";
 import { CATEGORY_LABELS, CATEGORY_COLORS, FREQUENCY_LABELS } from "@/types";
-import { fileToDataUrl } from "@/services/openai";
+import {
+  fileToDataUrl,
+  transcribeAudio,
+  extractMultipleMedicinesFromText,
+  extractMultipleMedicinesFromImages,
+  ExtractedMedicine,
+} from "@/services/openai";
 import { addMedicationForPatient } from "../services/companionMedication";
 import { useApp } from "@/contexts/AppContext";
 import { TIME_PERIOD_OPTIONS, calculateEndDate, getTodayDateString } from "@/modules/medication/constants";
+import {
+  checkDrugInteractions,
+  type DetectedInteraction,
+} from "@/modules/medication/services/interactionService";
 
 interface Props {
   isOpen: boolean;
@@ -31,6 +54,22 @@ interface Props {
   patient: LinkedPatient;
   patientMedications?: { name: string }[];
   onMedicationAdded?: () => void;
+}
+
+type Tab = "scan" | "talk" | "type";
+
+interface MedicineQueueItem extends ExtractedMedicine {
+  id: string;
+  source: "scan" | "voice" | "manual";
+  category: MedicationCategory;
+  frequency: FrequencyType;
+  timePeriod: string;
+  imageUrl?: string;
+}
+
+interface MedicineInteraction {
+  medicineName: string;
+  interactions: DetectedInteraction[];
 }
 
 // Normalize medicine name for comparison (case-insensitive, trimmed)
@@ -100,6 +139,24 @@ const TIME_PRESETS = [
 const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
 
+const generateId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+// Get current time in 12-hour format
+const getCurrentTime12h = (): string => {
+  const now = new Date();
+  let hours = now.getHours();
+  const minutes = now.getMinutes();
+  const period = hours >= 12 ? "PM" : "AM";
+  
+  if (hours === 0) hours = 12;
+  else if (hours > 12) hours -= 12;
+  
+  const roundedMinutes = Math.round(minutes / 5) * 5;
+  const finalMinutes = roundedMinutes >= 60 ? 0 : roundedMinutes;
+  
+  return `${hours}:${finalMinutes.toString().padStart(2, "0")} ${period}`;
+};
+
 export function AddMedicineForPatientModal({
   isOpen,
   onClose,
@@ -108,7 +165,21 @@ export function AddMedicineForPatientModal({
   onMedicationAdded,
 }: Props) {
   const { user } = useApp();
+  const [activeTab, setActiveTab] = useState<Tab>("scan");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [capturedImages, setCapturedImages] = useState<string[]>([]);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [medicineQueue, setMedicineQueue] = useState<MedicineQueueItem[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Drug interaction states
+  const [isCheckingInteractions, setIsCheckingInteractions] = useState(false);
+  const [showInteractionWarning, setShowInteractionWarning] = useState(false);
+  const [detectedInteractions, setDetectedInteractions] = useState<MedicineInteraction[]>([]);
+
   const [formData, setFormData] = useState({
     name: "",
     dosage: "",
@@ -125,6 +196,8 @@ export function AddMedicineForPatientModal({
   const [showFrequencyDropdown, setShowFrequencyDropdown] = useState(false);
   const [showDurationDropdown, setShowDurationDropdown] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [photoMenuOpenId, setPhotoMenuOpenId] = useState<string | null>(null);
+  const [photoTargetId, setPhotoTargetId] = useState<string | null>(null);
 
   // Time picker state
   const [selectedHour, setSelectedHour] = useState(8);
@@ -136,8 +209,145 @@ export function AddMedicineForPatientModal({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // File input ref for medicine photo
+  // Refs for camera, audio, and file upload
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const medicinePhotoRef = useRef<HTMLInputElement>(null);
+  const queuePhotoRef = useRef<HTMLInputElement>(null);
+
+  // ============ QUEUE ITEM PHOTO FUNCTIONS ============
+  const handleQueuePhotoUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file || !photoTargetId) return;
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setMedicineQueue((prev) =>
+        prev.map((item) =>
+          item.id === photoTargetId ? { ...item, imageUrl: dataUrl } : item
+        )
+      );
+      toast({
+        title: "Photo added",
+        description: "Medicine photo saved for reference.",
+      });
+    } catch (error) {
+      console.error("Failed to process photo:", error);
+    }
+    event.target.value = "";
+    setPhotoTargetId(null);
+    setPhotoMenuOpenId(null);
+  };
+
+  const openQueueItemCamera = async (itemId: string) => {
+    setPhotoTargetId(itemId);
+    setPhotoMenuOpenId(null);
+    await startCamera();
+  };
+
+  const openQueueItemUpload = (itemId: string) => {
+    setPhotoTargetId(itemId);
+    setPhotoMenuOpenId(null);
+    queuePhotoRef.current?.click();
+  };
+
+  // ============ CAMERA FUNCTIONS ============
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setIsCameraOpen(false);
+  }, []);
+
+  const startCamera = useCallback(async () => {
+    stopCamera();
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setIsCameraOpen(true);
+    } catch (error) {
+      console.error("Camera error:", error);
+      toast({
+        title: "Camera Error",
+        description: "Could not access camera. Please check permissions.",
+        variant: "destructive",
+      });
+    }
+  }, [stopCamera]);
+
+  // ============ VOICE FUNCTIONS ============
+  const stopRecording = useCallback(() => {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state !== "inactive"
+    ) {
+      mediaRecorderRef.current.stop();
+    }
+    setIsListening(false);
+  }, []);
+
+  // Recording timer
+  useEffect(() => {
+    if (isListening) {
+      setRecordingDuration(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } else {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      setRecordingDuration(0);
+    }
+
+    return () => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+    };
+  }, [isListening]);
+
+  // Cleanup on close
+  useEffect(() => {
+    if (!isOpen) {
+      stopCamera();
+      stopRecording();
+      setCapturedImages([]);
+      setMedicineQueue([]);
+      setFormData({
+        name: "",
+        dosage: "",
+        time: "",
+        instructions: "",
+        category: "medicine",
+        frequency: "once_daily",
+        timePeriod: "ongoing",
+        imageUrl: "",
+      });
+      setEditingId(null);
+      setActiveTab("scan");
+    }
+  }, [isOpen, stopCamera, stopRecording]);
 
   // Search drug database with debounce
   const handleDrugSearch = useCallback((query: string) => {
@@ -223,25 +433,18 @@ export function AddMedicineForPatientModal({
       setSelectedMinute(minute);
       setSelectedPeriod(period);
     } else {
-      // Pre-fill with next available time slot
       const now = new Date();
       let hours = now.getHours();
       const minutes = now.getMinutes();
       
-      // Round minutes UP to next 5-minute slot
       const roundedMinutes = Math.ceil(minutes / 5) * 5;
-      
-      // Handle minute overflow (e.g., 58 rounds to 60)
       let finalMinutes = roundedMinutes;
       if (roundedMinutes >= 60) {
         finalMinutes = 0;
         hours += 1;
       }
-      
-      // Handle hour overflow
       if (hours >= 24) hours = 0;
       
-      // Convert to 12-hour format
       const period: "AM" | "PM" = hours >= 12 ? "PM" : "AM";
       let hour12 = hours % 12;
       if (hour12 === 0) hour12 = 12;
@@ -273,25 +476,342 @@ export function AddMedicineForPatientModal({
     event.target.value = "";
   };
 
-  // Reset form
-  const resetForm = () => {
-    setFormData({
-      name: "",
-      dosage: "",
-      time: "",
-      instructions: "",
-      category: "medicine",
-      frequency: "once_daily",
-      timePeriod: "ongoing",
-      imageUrl: "",
-    });
-    setShowCategoryDropdown(false);
-    setShowFrequencyDropdown(false);
-    setShowDurationDropdown(false);
+  // Capture photo from camera
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) return;
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    const imageDataUrl = canvas.toDataURL("image/jpeg", 0.9);
+
+    // If capturing for a queue item, update that item
+    if (photoTargetId) {
+      setMedicineQueue((prev) =>
+        prev.map((item) =>
+          item.id === photoTargetId ? { ...item, imageUrl: imageDataUrl } : item
+        )
+      );
+      toast({
+        title: "Photo captured",
+        description: "Medicine photo saved for reference.",
+      });
+      setPhotoTargetId(null);
+      stopCamera();
+    } else {
+      // Auto-analyze immediately after capture
+      void analyzeImagesInstantly([imageDataUrl]);
+      stopCamera();
+    }
   };
 
-  // Handle form submission
-  const handleSubmit = async () => {
+  // Handle file upload (images) - auto-analyze immediately
+  const handleFileUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const maxSize = 20 * 1024 * 1024;
+    const supportedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+
+    const validImages: string[] = [];
+
+    try {
+      for (const file of Array.from(files)) {
+        if (file.size > maxSize) {
+          toast({
+            title: "File too large",
+            description: `${file.name} exceeds 20MB limit.`,
+            variant: "destructive",
+          });
+          continue;
+        }
+
+        if (!supportedTypes.includes(file.type)) {
+          toast({
+            title: "Unsupported file type",
+            description: `${file.name} is not supported. Use JPG, PNG, GIF, or WebP images.`,
+            variant: "destructive",
+          });
+          continue;
+        }
+
+        const dataUrl = await fileToDataUrl(file);
+        validImages.push(dataUrl);
+      }
+
+      if (validImages.length > 0) {
+        void analyzeImagesInstantly(validImages);
+      }
+    } catch (error) {
+      console.error("Failed to process files:", error);
+      toast({
+        title: "Upload failed",
+        description: "Could not process the file. Please try again.",
+        variant: "destructive",
+      });
+    }
+
+    event.target.value = "";
+  };
+
+  // Analyze images instantly (called automatically after capture/upload)
+  const analyzeImagesInstantly = async (images: string[]) => {
+    if (images.length === 0) return;
+
+    setIsProcessing(true);
+    toast({
+      title: "Analyzing...",
+      description: `Processing ${images.length} image${images.length > 1 ? "s" : ""}`,
+    });
+
+    try {
+      const medicines = await extractMultipleMedicinesFromImages(images);
+
+      if (medicines.length > 0) {
+        const existingQueueNames = medicineQueue.map((m) => m.name);
+        const existingMedNames = patientMedications.map((m) => m.name);
+        const allExistingNames = [...existingQueueNames, ...existingMedNames];
+        
+        const newItems: MedicineQueueItem[] = [];
+        const duplicates: string[] = [];
+        const addedNames: string[] = [];
+        
+        const defaultTime = getCurrentTime12h();
+        
+        for (const m of medicines.filter((m) => m.name)) {
+          const allNames = [...allExistingNames, ...addedNames];
+          const { isDuplicate, matchedName } = isMedicineDuplicate(m.name, allNames);
+          
+          if (isDuplicate) {
+            duplicates.push(`${m.name} (matches "${matchedName}")`);
+          } else {
+            const extractedFreq = (m as { frequency?: string }).frequency;
+            const frequencyMap: Record<string, FrequencyType> = {
+              once_daily: "once_daily",
+              twice_daily: "twice_daily",
+              three_times_daily: "three_times_daily",
+              four_times_daily: "four_times_daily",
+              as_needed: "as_needed",
+            };
+            const frequency = frequencyMap[extractedFreq || ""] || "once_daily";
+            const medicineTime = m.time && m.time.trim() !== "" ? m.time : defaultTime;
+            
+            newItems.push({
+              ...m,
+              id: generateId(),
+              source: "scan" as const,
+              category: "medicine" as MedicationCategory,
+              frequency,
+              time: medicineTime,
+      timePeriod: "ongoing",
+              imageUrl: images[Math.min(newItems.length, images.length - 1)],
+            });
+            addedNames.push(m.name);
+          }
+        }
+
+        if (newItems.length > 0) {
+          setMedicineQueue((prev) => [...prev, ...newItems]);
+        }
+        setCapturedImages([]);
+
+        if (newItems.length > 0 && duplicates.length > 0) {
+          toast({
+            title: `Added ${newItems.length} medicine${newItems.length > 1 ? "s" : ""}`,
+            description: `${duplicates.length} already in ${patient.name}'s list`,
+          });
+        } else if (newItems.length > 0) {
+          toast({
+            title: `Found ${newItems.length} medicine${newItems.length > 1 ? "s" : ""}!`,
+            description: newItems.map((m) => m.name).join(", "),
+          });
+        } else if (duplicates.length > 0) {
+          toast({
+            title: "Already in their list",
+            description: "This medicine is already added",
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Could not read labels",
+          description: "Try taking clearer photos or add manually.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error("Scan error:", error);
+      toast({
+        title: "Scan failed",
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Voice recording
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : "audio/mp4",
+      });
+
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
+
+        if (audioBlob.size > 0) {
+          setIsProcessing(true);
+          try {
+            const transcribedText = await transcribeAudio(audioBlob);
+
+            if (transcribedText) {
+              const medicines = await extractMultipleMedicinesFromText(
+                transcribedText
+              );
+
+              if (medicines.length > 0) {
+                let existingQueueNames: string[] = [];
+                setMedicineQueue((prev) => {
+                  existingQueueNames = prev.map((m) => m.name);
+                  return prev;
+                });
+                const existingMedNames = patientMedications.map((m) => m.name);
+                const allExistingNames = [...existingQueueNames, ...existingMedNames];
+                
+                const defaultTime = getCurrentTime12h();
+                
+                const newItems: MedicineQueueItem[] = [];
+                const duplicates: string[] = [];
+                const addedNames: string[] = [];
+                
+                for (const m of medicines.filter((m) => m.name)) {
+                  const allNames = [...allExistingNames, ...addedNames];
+                  const { isDuplicate, matchedName } = isMedicineDuplicate(m.name, allNames);
+                  
+                  if (isDuplicate) {
+                    duplicates.push(`${m.name} (matches "${matchedName}")`);
+                  } else {
+                    const extractedFreq = (m as { frequency?: string }).frequency;
+                    const frequencyMap: Record<string, FrequencyType> = {
+                      once_daily: "once_daily",
+                      twice_daily: "twice_daily",
+                      three_times_daily: "three_times_daily",
+                      four_times_daily: "four_times_daily",
+                      as_needed: "as_needed",
+                    };
+                    const frequency = frequencyMap[extractedFreq || ""] || "once_daily";
+                    const medicineTime = m.time && m.time.trim() !== "" ? m.time : defaultTime;
+                    
+                    newItems.push({
+                      ...m,
+                      id: generateId(),
+                      source: "voice" as const,
+                      category: "medicine" as MedicationCategory,
+                      frequency,
+                      time: medicineTime,
+                      timePeriod: "ongoing",
+                    });
+                    addedNames.push(m.name);
+                  }
+                }
+
+                if (newItems.length > 0) {
+                  setMedicineQueue((prev) => [...prev, ...newItems]);
+                }
+
+                if (newItems.length > 0 && duplicates.length > 0) {
+      toast({
+                    title: `Added ${newItems.length} medicine${newItems.length > 1 ? "s" : ""}`,
+                    description: `${duplicates.length} already in ${patient.name}'s list`,
+                  });
+                } else if (newItems.length > 0) {
+                  toast({
+                    title: `Found ${newItems.length} medicine${newItems.length > 1 ? "s" : ""}!`,
+                    description: newItems.map((m) => m.name).join(", "),
+                  });
+                } else if (duplicates.length > 0) {
+                  toast({
+                    title: "Already in their list",
+                    description: "This medicine is already added",
+        variant: "destructive",
+      });
+                }
+              } else {
+                toast({
+                  title: "Could not extract details",
+                  description: `Heard: "${transcribedText}". Try again or add manually.`,
+                });
+              }
+            }
+          } catch (error) {
+            console.error("Voice processing error:", error);
+            toast({
+              title: "Voice processing failed",
+              description:
+                error instanceof Error ? error.message : "Please try again.",
+              variant: "destructive",
+            });
+          } finally {
+            setIsProcessing(false);
+          }
+        }
+      };
+
+      mediaRecorder.start();
+      setIsListening(true);
+    } catch (error) {
+      console.error("Microphone error:", error);
+      toast({
+        title: "Microphone Error",
+        description: "Could not access microphone. Please check permissions.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleVoiceInput = () => {
+    if (isListening) {
+      stopRecording();
+    } else {
+      void startRecording();
+    }
+  };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // Queue management
+  const addManualMedicine = () => {
     if (!formData.name) {
       toast({
         title: "Missing name",
@@ -301,36 +821,48 @@ export function AddMedicineForPatientModal({
       return;
     }
 
-    if (!formData.dosage) {
+    if (editingId) {
+      const otherQueueNames = medicineQueue
+        .filter((m) => m.id !== editingId)
+        .map((m) => m.name);
+      const existingMedNames = patientMedications.map((m) => m.name);
+      const allExistingNames = [...otherQueueNames, ...existingMedNames];
+      
+      const { isDuplicate, matchedName } = isMedicineDuplicate(formData.name, allExistingNames);
+      
+      if (isDuplicate) {
       toast({
-        title: "Missing dosage",
-        description: "Please enter the dosage.",
+          title: "Already in their list",
+          description: `${matchedName} is already added for ${patient.name}`,
         variant: "destructive",
       });
       return;
     }
 
-    if (!formData.time) {
-      toast({
-        title: "Missing time",
-        description: "Please enter the time to take the medicine.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!user?.id) {
-      toast({
-        title: "Not authenticated",
-        description: "Please log in to add medications.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Check for duplicate medicines
+      setMedicineQueue((prev) =>
+        prev.map((item) =>
+          item.id === editingId
+            ? {
+                ...item,
+                name: formData.name,
+                dosage: formData.dosage,
+                time: formData.time,
+                instructions: formData.instructions,
+                category: formData.category,
+                frequency: formData.frequency,
+                timePeriod: formData.timePeriod,
+                imageUrl: formData.imageUrl,
+              }
+            : item
+        )
+      );
+      setEditingId(null);
+    } else {
+      const existingQueueNames = medicineQueue.map((m) => m.name);
     const existingMedNames = patientMedications.map((m) => m.name);
-    const { isDuplicate, matchedName } = isMedicineDuplicate(formData.name, existingMedNames);
+      const allExistingNames = [...existingQueueNames, ...existingMedNames];
+      
+      const { isDuplicate, matchedName } = isMedicineDuplicate(formData.name, allExistingNames);
     
     if (isDuplicate) {
       toast({
@@ -341,28 +873,140 @@ export function AddMedicineForPatientModal({
       return;
     }
 
+      const newItem: MedicineQueueItem = {
+        id: generateId(),
+        source: "manual",
+        name: formData.name,
+        dosage: formData.dosage,
+        time: formData.time,
+        instructions: formData.instructions,
+        category: formData.category,
+        frequency: formData.frequency,
+        timePeriod: formData.timePeriod,
+        imageUrl: formData.imageUrl,
+      };
+      setMedicineQueue((prev) => [...prev, newItem]);
+    }
+
+    setFormData({
+      name: "",
+      dosage: "",
+      time: "",
+      instructions: "",
+      category: "medicine",
+      frequency: "once_daily",
+      timePeriod: "ongoing",
+      imageUrl: "",
+    });
+      toast({
+      title: editingId ? "Medicine updated!" : "Medicine added to list!",
+      description: formData.name,
+    });
+  };
+
+  const editMedicine = (item: MedicineQueueItem) => {
+    setFormData({
+      name: item.name,
+      dosage: item.dosage,
+      time: item.time,
+      instructions: item.instructions,
+      category: item.category,
+      frequency: item.frequency,
+      timePeriod: item.timePeriod || "ongoing",
+      imageUrl: item.imageUrl || "",
+    });
+    setEditingId(item.id);
+    setActiveTab("type");
+  };
+
+  const removeMedicine = (id: string) => {
+    setMedicineQueue((prev) => prev.filter((item) => item.id !== id));
+    if (editingId === id) {
+      setEditingId(null);
+      setFormData({
+        name: "",
+        dosage: "",
+        time: "",
+        instructions: "",
+        category: "medicine",
+        frequency: "once_daily",
+        timePeriod: "ongoing",
+        imageUrl: "",
+      });
+    }
+  };
+
+  const getSourceIcon = (source: MedicineQueueItem["source"]) => {
+    switch (source) {
+      case "scan":
+        return "📷";
+      case "voice":
+        return "🎤";
+      case "manual":
+        return "⌨️";
+    }
+  };
+
+  // Convert patient medications to the format expected by checkDrugInteractions
+  const patientMedsForInteractionCheck = patientMedications.map((m) => ({
+    id: "",
+    name: m.name,
+    dosage: "",
+    time: "",
+    taken: false,
+  }));
+
+  // Check for drug interactions before saving
+  const checkAllInteractions = async () => {
+    setIsCheckingInteractions(true);
+    const allInteractions: MedicineInteraction[] = [];
+
+    try {
+      for (const medicine of medicineQueue) {
+        const result = await checkDrugInteractions(
+          medicine.name,
+          patientMedsForInteractionCheck
+        );
+        if (result.hasInteractions) {
+          allInteractions.push({
+            medicineName: medicine.name,
+            interactions: result.interactions,
+          });
+        }
+      }
+
+      setDetectedInteractions(allInteractions);
+      return allInteractions;
+    } finally {
+      setIsCheckingInteractions(false);
+    }
+  };
+
+  // Actually save the medicines (after interaction check or user confirmation)
+  const doSaveMedicines = async () => {
+    if (isSubmitting) return;
     setIsSubmitting(true);
 
     try {
-      // Calculate start and end dates for prescription duration
+      for (const medicine of medicineQueue) {
       const startDate = getTodayDateString();
-      const endDate = calculateEndDate(startDate, formData.timePeriod);
+        const endDate = calculateEndDate(startDate, medicine.timePeriod);
 
       const { error } = await addMedicationForPatient(
         patient.id,
-        user.id,
-        {
-          name: formData.name,
-          dosage: formData.dosage,
-          time: formData.time,
-          instructions: formData.instructions || undefined,
-          category: formData.category,
-          frequency: formData.frequency,
-          imageUrl: formData.imageUrl || undefined,
-          timePeriod: formData.timePeriod,
+          user!.id,
+          {
+            name: medicine.name,
+            dosage: medicine.dosage,
+            time: medicine.time,
+            instructions: medicine.instructions || undefined,
+            category: medicine.category,
+            frequency: medicine.frequency,
+            imageUrl: medicine.imageUrl || undefined,
+            timePeriod: medicine.timePeriod,
           startDate,
           endDate: endDate ?? undefined,
-          startTime: formData.time,
+            startTime: medicine.time,
           nextDayMode: "restart" as NextDayMode,
           isActive: true,
         }
@@ -370,14 +1014,17 @@ export function AddMedicineForPatientModal({
 
       if (error) {
         throw new Error(error);
+        }
       }
 
       toast({
-        title: "Medicine added!",
-        description: `${formData.name} has been added for ${patient.name}.`,
+        title: `${medicineQueue.length} medicine${medicineQueue.length > 1 ? "s" : ""} saved!`,
+        description: `Added for ${patient.name}`,
       });
 
-      resetForm();
+      setMedicineQueue([]);
+      setShowInteractionWarning(false);
+      setDetectedInteractions([]);
       onMedicationAdded?.();
       onClose();
     } catch (error) {
@@ -392,17 +1039,70 @@ export function AddMedicineForPatientModal({
     }
   };
 
+// Save all medicines (with interaction check)
+  const handleSaveAll = async () => {
+    if (medicineQueue.length === 0) {
+      toast({
+        title: "No medicines to save",
+        description: "Add at least one medicine first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const incomplete = medicineQueue.filter(
+      (m) => !m.name || !m.dosage || !m.time
+    );
+    if (incomplete.length > 0) {
+      toast({
+        title: "Incomplete entries",
+        description: `Please fill in all required fields for: ${incomplete
+          .map((m) => m.name || "Unnamed")
+          .join(", ")}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!user?.id) {
+      toast({
+        title: "Not authenticated",
+        description: "Please log in to add medications.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check for interactions with patient's existing medications
+    const interactions = await checkAllInteractions();
+
+    if (interactions.length > 0) {
+      // Show warning dialog
+      setShowInteractionWarning(true);
+    } else {
+      // No interactions, save directly
+      await doSaveMedicines();
+    }
+  };
+
   if (!isOpen) return null;
+
+  const tabs = [
+    { id: "scan" as Tab, label: "Scan", icon: Camera },
+    { id: "talk" as Tab, label: "Talk", icon: Mic },
+    { id: "type" as Tab, label: "Type", icon: Keyboard },
+  ];
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-background w-full max-w-lg rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-border rounded-t-2xl">
+      <div className="bg-background w-full max-w-lg rounded-2xl shadow-2xl max-h-[90vh] flex flex-col">
+        {/* Sticky Header */}
+        <div className="flex items-center justify-between p-6 border-b border-border bg-background sticky top-0 z-10 rounded-t-2xl">
           <div>
             <h2 className="text-senior-xl font-bold">Add Medicine</h2>
             <p className="text-sm text-muted-foreground">
               For {patient.name}
+              {medicineQueue.length > 0 && ` • ${medicineQueue.length} in queue`}
             </p>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}>
@@ -410,9 +1110,303 @@ export function AddMedicineForPatientModal({
           </Button>
         </div>
 
-        {/* Form Content */}
-        <div className="p-6 space-y-4">
-          {/* Hidden medicine photo input */}
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Medicine Queue */}
+          {medicineQueue.length > 0 && (
+            <div className="px-6 py-4 border-b border-border bg-muted/30">
+              <div className="flex items-center gap-2 mb-3">
+                <Pill className="w-5 h-5 text-primary" />
+                <span className="font-semibold">Medicines to save:</span>
+              </div>
+              {/* Hidden input for queue item photo upload */}
+              <input
+                ref={queuePhotoRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleQueuePhotoUpload}
+              />
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {medicineQueue.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`p-3 rounded-xl bg-background border ${
+                      editingId === item.id ? "border-primary" : "border-border"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      {/* Medicine photo thumbnail with add photo dropdown */}
+                      {item.imageUrl ? (
+                        <div className="relative shrink-0">
+                          <img
+                            src={item.imageUrl}
+                            alt={item.name}
+                            className="w-12 h-12 rounded-lg object-cover border-2 border-green-300"
+                          />
+                          <button
+                            onClick={() =>
+                              setMedicineQueue((prev) =>
+                                prev.map((m) =>
+                                  m.id === item.id
+                                    ? { ...m, imageUrl: undefined }
+                                    : m
+                                )
+                              )
+                            }
+                            className="absolute -top-1 -right-1 w-4 h-4 bg-destructive text-white rounded-full flex items-center justify-center text-xs"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() =>
+                            setPhotoMenuOpenId(
+                              photoMenuOpenId === item.id ? null : item.id
+                            )
+                          }
+                          className="w-12 h-12 shrink-0 rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/50 flex flex-col items-center justify-center hover:border-primary hover:bg-primary/5 transition-colors group"
+                          title="Add photo"
+                        >
+                          <Camera className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
+                        </button>
+                      )}
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-lg">{getSourceIcon(item.source)}</span>
+                          <p className="font-semibold truncate">{item.name || "Unnamed"}</p>
+                        </div>
+                        <p className="text-sm text-muted-foreground truncate">
+                          {item.dosage} • {item.time || "No time set"}
+                        </p>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full border ${
+                              CATEGORY_COLORS[item.category]
+                            }`}
+                          >
+                            {CATEGORY_LABELS[item.category]}
+                          </span>
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                            {FREQUENCY_LABELS[item.frequency]}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => editMedicine(item)}
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeMedicine(item.id)}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tabs */}
+          <div className="flex p-4 gap-2">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  if (tab.id !== "scan") stopCamera();
+                  if (tab.id !== "talk") stopRecording();
+                }}
+                className={`flex-1 flex flex-col items-center gap-2 p-4 rounded-xl transition-all ${
+                  activeTab === tab.id
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                <tab.icon className="w-6 h-6" />
+                <span className="text-senior-sm font-semibold">{tab.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Tab Content */}
+          <div className="p-6">
+            {/* ============ SCAN TAB ============ */}
+            {activeTab === "scan" && (
+              <div className="text-center">
+                <canvas ref={canvasRef} className="hidden" />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+
+                {/* Only show camera in scan tab if not taking a photo for a queue item */}
+                {isCameraOpen && !photoTargetId ? (
+                  <>
+                    <div className="relative w-full aspect-[4/3] bg-black rounded-2xl overflow-hidden mb-4">
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="w-48 h-32 border-2 border-white/60 rounded-lg relative">
+                          <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-white rounded-tl-lg" />
+                          <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-white rounded-tr-lg" />
+                          <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-white rounded-bl-lg" />
+                          <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-white rounded-br-lg" />
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-senior-sm text-muted-foreground mb-4">
+                      Point at medicine label and capture
+                    </p>
+                    <div className="flex gap-3">
+                      <Button
+                        variant="secondary"
+                        size="lg"
+                        className="flex-1"
+                        onClick={stopCamera}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="coral"
+                        size="lg"
+                        className="flex-1"
+                        onClick={capturePhoto}
+                      >
+                        <Camera className="w-5 h-5 mr-2" />
+                        Capture
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="w-32 h-32 mx-auto bg-muted rounded-3xl flex items-center justify-center mb-6">
+                      {isProcessing ? (
+                        <Loader2 className="w-16 h-16 text-primary animate-spin" />
+                      ) : (
+                        <Camera className="w-16 h-16 text-muted-foreground" />
+                      )}
+                    </div>
+                    <p className="text-senior-base text-muted-foreground mb-4">
+                      {isProcessing
+                        ? "Analyzing medicine labels..."
+                        : "Take photos or upload images of medicine labels"}
+                    </p>
+                    <div className="flex gap-3">
+                      <Button
+                        variant="coral"
+                        size="lg"
+                        className="flex-1"
+                        onClick={() => void startCamera()}
+                        disabled={isProcessing}
+                      >
+                        <Camera className="w-6 h-6 mr-2" />
+                        Camera
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="lg"
+                        className="flex-1"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isProcessing}
+                      >
+                        <Upload className="w-6 h-6 mr-2" />
+                        Upload
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ============ TALK TAB ============ */}
+            {activeTab === "talk" && (
+              <div className="text-center">
+                <button
+                  onClick={handleVoiceInput}
+                  disabled={isProcessing}
+                  className={`w-32 h-32 mx-auto rounded-full flex items-center justify-center mb-6 transition-all ${
+                    isListening
+                      ? "bg-destructive pulse-ring"
+                      : isProcessing
+                      ? "bg-muted"
+                      : "bg-primary hover:brightness-110"
+                  }`}
+                >
+                  {isProcessing ? (
+                    <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Mic className="w-16 h-16 text-white" />
+                  )}
+                </button>
+
+                {isListening ? (
+                  <div className="mb-8">
+                    <p className="text-senior-lg font-semibold text-destructive mb-2">
+                      Recording... {formatDuration(recordingDuration)}
+                    </p>
+                    <p className="text-senior-sm text-muted-foreground mb-4">
+                      Tap to stop
+                    </p>
+                    <div className="flex items-center justify-center gap-1">
+                      {[...Array(7)].map((_, i) => (
+                        <div
+                          key={i}
+                          className="w-2 bg-destructive rounded-full animate-pulse"
+                          style={{
+                            height: `${16 + Math.random() * 24}px`,
+                            animationDelay: `${i * 0.1}s`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : isProcessing ? (
+                  <div className="mb-8">
+                    <p className="text-senior-lg font-semibold text-primary mb-2">
+                      Processing...
+                    </p>
+                    <p className="text-senior-sm text-muted-foreground">
+                      Extracting medicine information
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mb-8">
+                    <p className="text-senior-base text-muted-foreground">
+                      Say {patient.name}'s medicines, for example:
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-2 italic">
+                      "Metformin 500mg after breakfast, Lisinopril 10mg at
+                      night, and Aspirin 81mg in the morning"
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ============ TYPE TAB ============ */}
+            {activeTab === "type" && (
+              <div className="space-y-4">
           <input
             ref={medicinePhotoRef}
             type="file"
@@ -420,6 +1414,13 @@ export function AddMedicineForPatientModal({
             className="hidden"
             onChange={handleMedicinePhotoUpload}
           />
+
+                {editingId && (
+                  <div className="bg-primary/10 text-primary p-3 rounded-lg text-sm">
+                    Editing medicine. Update the fields and tap "Update" to save
+                    changes.
+                  </div>
+                )}
 
           {/* Medicine Photo */}
           <div>
@@ -480,7 +1481,6 @@ export function AddMedicineForPatientModal({
               className="input-senior"
               autoComplete="off"
             />
-            {/* Drug Suggestions Dropdown */}
             {showSuggestions && drugSuggestions.length > 0 && (
               <div className="absolute z-50 w-full mt-1 bg-card border border-border rounded-xl shadow-lg max-h-60 overflow-y-auto">
                 {drugSuggestions.map((drug, index) => (
@@ -702,40 +1702,45 @@ export function AddMedicineForPatientModal({
             />
           </div>
 
-          {/* Info Banner */}
-          <div className="bg-muted rounded-xl p-4 flex items-start gap-3">
-            <Pill className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-            <div className="text-sm">
-              <p className="font-medium">Adding medicine for {patient.name}</p>
-              <p className="text-muted-foreground mt-1">
-                This medicine will appear in their schedule and reminders.
-              </p>
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  className="w-full"
+                  onClick={addManualMedicine}
+                >
+                  <Plus className="w-5 h-5 mr-2" />
+                  {editingId ? "Update Medicine" : "Add to List"}
+                </Button>
             </div>
-          </div>
+            )}
 
-          {/* Submit Button */}
+            {/* Save All Button */}
+            {medicineQueue.length > 0 && (
           <Button
             variant="coral"
             size="lg"
-            className="w-full"
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                Adding...
+                className="w-full mt-6"
+                onClick={handleSaveAll}
+                disabled={isProcessing || isListening || isSubmitting || isCheckingInteractions}
+              >
+                {isSubmitting || isCheckingInteractions ? (
+                  <>
+                    <Loader2 className="w-6 h-6 mr-2 animate-spin" />
+                    {isCheckingInteractions ? "Checking..." : "Saving..."}
               </>
             ) : (
               <>
-                <Plus className="w-5 h-5 mr-2" />
-                Add Medicine
+                    <Check className="w-6 h-6 mr-2" />
+                    Save {medicineQueue.length} Medicine
+                    {medicineQueue.length > 1 ? "s" : ""} for {patient.name}
               </>
             )}
           </Button>
+            )}
         </div>
 
         <div className="h-safe-bottom" />
+        </div>
       </div>
 
       {/* Time Picker Modal */}
@@ -876,7 +1881,274 @@ export function AddMedicineForPatientModal({
           </div>
         </div>
       )}
+
+      {/* Interaction Warning Modal */}
+      {showInteractionWarning && (
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-background w-full max-w-lg rounded-3xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl shadow-primary/20 border-2 border-primary/20">
+            {/* Branded Header with Coral Gradient */}
+            <div className="relative px-6 py-6 bg-gradient-to-br from-primary via-primary to-[hsl(16_100%_72%)] overflow-hidden">
+              {/* Decorative Pattern */}
+              <div className="absolute inset-0 opacity-10">
+                <div className="absolute -top-4 -right-4 w-32 h-32 rounded-full border-4 border-white"></div>
+                <div className="absolute -bottom-8 -left-8 w-40 h-40 rounded-full border-4 border-white"></div>
+              </div>
+              
+              <div className="relative flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30">
+                  <AlertTriangle className="w-7 h-7 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-xl text-white">
+                    Drug Interactions Detected
+                  </h3>
+                  <p className="text-sm text-white/90">
+                    {detectedInteractions.length} medicine
+                    {detectedInteractions.length > 1 ? "s have" : " has"}{" "}
+                    potential interactions with {patient.name}'s medications
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Doctor Recommendation - Teal Themed */}
+            <div className="px-6 py-4 bg-gradient-to-r from-secondary/10 to-teal-light/50 dark:from-secondary/20 dark:to-secondary/10 border-b border-secondary/20">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-secondary/20 flex items-center justify-center shrink-0">
+                  <Stethoscope className="w-6 h-6 text-secondary" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-secondary">Recommendation</p>
+                  <p className="text-sm text-muted-foreground">
+                    Consult a doctor or pharmacist before giving these medicines together.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Interaction List */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {detectedInteractions.map((item, idx) => (
+                <div key={idx} className="space-y-3">
+                  <h4 className="font-bold flex items-center gap-2 text-lg">
+                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <Pill className="w-4 h-4 text-primary" />
+                    </div>
+                    {item.medicineName}
+                  </h4>
+                  {item.interactions.map((interaction, iIdx) => {
+                    const isMajor = interaction.severity === "Major";
+                    const isModerate = interaction.severity === "Moderate";
+                    return (
+                      <div
+                        key={iIdx}
+                        className={`p-4 rounded-2xl border-2 ${
+                          isMajor 
+                            ? "border-primary/30 bg-primary/5" 
+                            : isModerate 
+                            ? "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30"
+                            : "border-secondary/30 bg-secondary/5"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-3">
+                          {isMajor ? (
+                            <AlertOctagon className="w-5 h-5 text-primary" />
+                          ) : isModerate ? (
+                            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                          ) : (
+                            <Info className="w-5 h-5 text-secondary" />
+                          )}
+                          <span className={`font-bold ${
+                            isMajor ? "text-primary" : isModerate ? "text-amber-700 dark:text-amber-400" : "text-secondary"
+                          }`}>
+                            {interaction.severity} interaction
+                          </span>
+                          <span className={`ml-auto px-2.5 py-1 rounded-full text-xs font-bold uppercase ${
+                            isMajor 
+                              ? "bg-primary text-white" 
+                              : isModerate 
+                              ? "bg-amber-500 text-white"
+                              : "bg-secondary text-white"
+                          }`}>
+                            {interaction.currentMedication}
+                          </span>
+                        </div>
+                        <p className="text-sm mb-3 leading-relaxed">
+                          {interaction.clinicalEffect}
+                        </p>
+                        {interaction.saferAlternative && (
+                          <div className="text-sm bg-secondary/10 p-3 rounded-xl border border-secondary/30">
+                            <span className="font-bold text-secondary">
+                              Safer alternative:
+                            </span>{" "}
+                            <span className="text-foreground">
+                              {interaction.saferAlternative}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+
+            {/* Actions */}
+            <div className="px-6 py-5 border-t-2 border-border/50 space-y-3 bg-muted/30">
+              <Button
+                variant="teal"
+                size="lg"
+                className="w-full"
+                onClick={() => {
+                  setShowInteractionWarning(false);
+                  setDetectedInteractions([]);
+                }}
+              >
+                <ArrowLeft className="w-5 h-5 mr-2" />
+                Go Back & Review
+              </Button>
+              <Button
+                variant="outline"
+                size="lg"
+                className="w-full border-2 border-primary/50 text-primary hover:bg-primary/10"
+                onClick={() => void doSaveMedicines()}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <ChevronRight className="w-5 h-5 mr-2" />
+                    I Understand, Save Anyway
+                  </>
+                )}
+              </Button>
+              <div className="flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-primary/5 border border-primary/20">
+                <AlertTriangle className="w-4 h-4 text-primary shrink-0" />
+                <p className="text-xs text-primary font-medium">
+                  Medical consultation recommended before proceeding
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loading Overlay for Interaction Check */}
+      {isCheckingInteractions && (
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center">
+          <div className="bg-background p-8 rounded-2xl text-center max-w-sm mx-4">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
+              <Loader2 className="w-8 h-8 text-primary animate-spin" />
+            </div>
+            <h3 className="font-semibold text-lg mb-2">
+              Checking Drug Interactions
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Checking these medicines against {patient.name}'s current medications...
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Photo Menu Overlay - Renders above everything */}
+      {photoMenuOpenId && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-[60]"
+            onClick={() => setPhotoMenuOpenId(null)}
+          />
+          {/* Menu */}
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden w-64">
+            <div className="px-4 py-3 bg-muted border-b border-border">
+              <p className="font-semibold text-sm">Add Medicine Photo</p>
+            </div>
+            <button
+              onClick={() => {
+                const id = photoMenuOpenId;
+                setPhotoMenuOpenId(null);
+                void openQueueItemCamera(id);
+              }}
+              className="w-full px-4 py-4 text-left hover:bg-muted flex items-center gap-4 border-b border-border transition-colors"
+            >
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <Camera className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <p className="font-medium">Take Photo</p>
+                <p className="text-xs text-muted-foreground">Use camera</p>
+              </div>
+            </button>
+            <button
+              onClick={() => {
+                const id = photoMenuOpenId;
+                setPhotoMenuOpenId(null);
+                openQueueItemUpload(id);
+              }}
+              className="w-full px-4 py-4 text-left hover:bg-muted flex items-center gap-4 transition-colors"
+            >
+              <div className="w-10 h-10 rounded-full bg-secondary/10 flex items-center justify-center">
+                <Upload className="w-5 h-5 text-secondary" />
+              </div>
+              <div>
+                <p className="font-medium">Upload Image</p>
+                <p className="text-xs text-muted-foreground">From gallery</p>
+              </div>
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Fullscreen Camera Overlay for Queue Item Photos */}
+      {isCameraOpen && photoTargetId && (
+        <div className="fixed inset-0 z-[70] bg-black flex flex-col">
+          <div className="flex items-center justify-between p-4 bg-black/80">
+            <h3 className="text-white font-semibold">Take Medicine Photo</h3>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                stopCamera();
+                setPhotoTargetId(null);
+              }}
+              className="text-white hover:bg-white/20"
+            >
+              <X className="w-6 h-6" />
+            </Button>
+          </div>
+          <div className="flex-1 relative">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-64 h-48 border-2 border-white/60 rounded-lg relative">
+                <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-lg" />
+                <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-white rounded-tr-lg" />
+                <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-white rounded-bl-lg" />
+                <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-lg" />
+              </div>
+            </div>
+          </div>
+          <div className="p-6 bg-black/80 flex justify-center">
+            <Button
+              variant="coral"
+              size="lg"
+              className="w-48 h-16 rounded-full"
+              onClick={capturePhoto}
+            >
+              <Camera className="w-8 h-8" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-

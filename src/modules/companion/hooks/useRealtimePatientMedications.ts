@@ -10,6 +10,7 @@ import type { Medication as DbMedication } from "@/types/database";
 import { getMedications } from "@/services/supabase";
 import {
   subscribeToPatientMedications,
+  subscribeToPatientDoses,
   unsubscribeFromChannel,
   type MedicationChangeEvent,
 } from "../services/realtimeSync";
@@ -35,9 +36,13 @@ interface UseRealtimePatientMedicationsReturn {
 }
 
 /**
- * Convert DB medication to app medication format
+ * Convert DB medication to app medication format (including doses)
  */
-function convertDbMedication(dbMed: DbMedication & { start_date?: string | null; end_date?: string | null }): Medication {
+function convertDbMedication(dbMed: DbMedication & { 
+  start_date?: string | null; 
+  end_date?: string | null;
+  doses?: Array<{ id: string; time: string; label: string; taken: boolean; taken_at: string | null; dose_order: number }>;
+}): Medication {
   return {
     id: dbMed.id,
     name: dbMed.name,
@@ -57,6 +62,15 @@ function convertDbMedication(dbMed: DbMedication & { start_date?: string | null;
     intervalMinutes: dbMed.interval_minutes ?? undefined,
     isActive: dbMed.is_active ?? true,
     takenAt: dbMed.taken_at ?? undefined,
+    // Include doses for multi-dose medications
+    doses: dbMed.doses?.map((dose) => ({
+      id: dose.id,
+      time: dose.time,
+      label: dose.label,
+      taken: dose.taken,
+      takenAt: dose.taken_at ?? undefined,
+      order: dose.dose_order,
+    })),
   };
 }
 
@@ -75,6 +89,7 @@ export function useRealtimePatientMedications(
   const [isConnected, setIsConnected] = useState(false);
 
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const doseChannelRef = useRef<RealtimeChannel | null>(null);
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
 
@@ -153,21 +168,59 @@ export function useRealtimePatientMedications(
     [patientId]
   );
 
-  // Subscribe to realtime updates
+  // Handle realtime DOSE changes (when patient marks a dose as taken)
+  const handleDoseChange = useCallback(
+    (event: { type: string; dose: { id: string; medication_id: string; taken: boolean; taken_at: string | null } }) => {
+      setMedications((prev) => {
+        const updated = prev.map((med) => {
+          if (med.id !== event.dose.medication_id) return med;
+          
+          // Update the specific dose
+          const updatedDoses = med.doses?.map((dose) => {
+            if (dose.id !== event.dose.id) return dose;
+            return {
+              ...dose,
+              taken: event.dose.taken,
+              takenAt: event.dose.taken_at ?? undefined,
+            };
+          });
+          
+          return { ...med, doses: updatedDoses };
+        });
+
+        // Notify parent component
+        if (patientId) {
+          onUpdateRef.current?.(patientId, updated);
+        }
+
+        return updated;
+      });
+    },
+    [patientId]
+  );
+
+  // Subscribe to realtime updates (medications + doses)
   useEffect(() => {
     if (!patientId || !enabled) {
       return;
     }
 
-    // Subscribe to realtime changes
+    // Subscribe to medication changes
     channelRef.current = subscribeToPatientMedications(
       patientId,
       handleMedicationChange
     );
 
-    // Track connection status
-    const channel = channelRef.current;
-    
+    // Subscribe to dose changes for all medications
+    const medicationIds = medications.map((m) => m.id);
+    if (medicationIds.length > 0) {
+      doseChannelRef.current = subscribeToPatientDoses(
+        patientId,
+        medicationIds,
+        handleDoseChange
+      );
+    }
+
     // Channel subscription is async, mark as connected once subscribed
     setIsConnected(true);
 
@@ -175,10 +228,14 @@ export function useRealtimePatientMedications(
       if (channelRef.current) {
         unsubscribeFromChannel(channelRef.current);
         channelRef.current = null;
-        setIsConnected(false);
       }
+      if (doseChannelRef.current) {
+        unsubscribeFromChannel(doseChannelRef.current);
+        doseChannelRef.current = null;
+      }
+      setIsConnected(false);
     };
-  }, [patientId, enabled, handleMedicationChange]);
+  }, [patientId, enabled, handleMedicationChange, handleDoseChange, medications.length]);
 
   // Initial fetch
   useEffect(() => {

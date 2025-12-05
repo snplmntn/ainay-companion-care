@@ -294,7 +294,7 @@ export function useMorningBriefing(
         window.speechSynthesis.cancel();
 
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 0.9; // Slightly slower for seniors
+        utterance.rate = 0.9; // Slightly slower for clarity
         utterance.pitch = 1.0;
         utterance.volume = 1.0;
         utterance.lang = "en-US";

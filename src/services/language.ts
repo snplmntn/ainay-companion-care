@@ -99,19 +99,19 @@ export function getLanguagePrompt(language: SupportedLanguage): string {
 
   const languageInstructions: Record<SupportedLanguage, string> = {
     en: "Respond in English.",
-    tl: `Respond in Tagalog (Filipino). Use natural, conversational Filipino that seniors can understand easily. You may include common English words that are commonly used in Taglish. Example greeting: "Kumusta po!"`,
-    ceb: `Respond in Cebuano (Bisaya). Use natural, conversational Cebuano/Bisaya that seniors in Visayas can understand. You may include common English or Tagalog words when necessary. Example greeting: "Kumusta man ka?"`,
-    ilo: `Respond in Ilocano (Ilokano). Use natural, conversational Ilocano that seniors in Northern Luzon can understand. Example greeting: "Naimbag nga aldaw!"`,
-    hil: `Respond in Hiligaynon (Ilonggo). Use natural, conversational Hiligaynon that seniors in Western Visayas can understand. Example greeting: "Kamusta ka?"`,
-    war: `Respond in Waray (Winaray). Use natural, conversational Waray that seniors in Eastern Visayas can understand. Example greeting: "Maupay nga adlaw!"`,
-    pam: `Respond in Kapampangan (Pampango). Use natural, conversational Kapampangan that seniors in Central Luzon can understand. Example greeting: "Komusta ka?"`,
-    bik: `Respond in Bikol (Bikolano). Use natural, conversational Bikol that seniors in Bicol region can understand. Example greeting: "Marhay na aldaw!"`,
+    tl: `Respond in Tagalog (Filipino). Use natural, conversational Filipino that anyone can understand easily. You may include common English words that are commonly used in Taglish. Example greeting: "Kumusta po!"`,
+    ceb: `Respond in Cebuano (Bisaya). Use natural, conversational Cebuano/Bisaya that people in Visayas can understand. You may include common English or Tagalog words when necessary. Example greeting: "Kumusta man ka?"`,
+    ilo: `Respond in Ilocano (Ilokano). Use natural, conversational Ilocano that people in Northern Luzon can understand. Example greeting: "Naimbag nga aldaw!"`,
+    hil: `Respond in Hiligaynon (Ilonggo). Use natural, conversational Hiligaynon that people in Western Visayas can understand. Example greeting: "Kamusta ka?"`,
+    war: `Respond in Waray (Winaray). Use natural, conversational Waray that people in Eastern Visayas can understand. Example greeting: "Maupay nga adlaw!"`,
+    pam: `Respond in Kapampangan (Pampango). Use natural, conversational Kapampangan that people in Central Luzon can understand. Example greeting: "Komusta ka?"`,
+    bik: `Respond in Bikol (Bikolano). Use natural, conversational Bikol that people in Bicol region can understand. Example greeting: "Marhay na aldaw!"`,
   };
 
   return `${languageInstructions[language]}
 
 IMPORTANT LANGUAGE GUIDELINES:
-- Use respectful language appropriate for seniors (use "po" and "opo" equivalents)
+- Use respectful, polite language (use "po" and "opo" equivalents in Filipino)
 - Keep medical terms in English for clarity, but explain them in ${config.name}
 - If a specific word doesn't exist in ${config.name}, use the English term
 - Be warm, patient, and supportive in tone

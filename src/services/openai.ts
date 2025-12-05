@@ -1,11 +1,18 @@
 import { searchDrugs, getDrugContext, type Drug } from "./drugDatabase";
 import { SupportedLanguage, getLanguagePrompt } from "./language";
+import { buildFoodInteractionsContext } from "./drugFoodInteractions";
 
-const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
-const WHISPER_API_URL = "https://api.openai.com/v1/audio/transcriptions";
+// Use backend proxy instead of direct OpenAI calls (avoids CORS + keeps API key secure)
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const OPENAI_CHAT_PROXY = `${API_BASE_URL}/api/openai/chat`;
+const OPENAI_TRANSCRIBE_PROXY = `${API_BASE_URL}/api/openai/transcribe`;
+
 const DEFAULT_MODEL = "gpt-4o";
 const FAST_MODEL = "gpt-4o-mini"; // Faster & cheaper for extraction tasks
 const WHISPER_MODEL = "whisper-1";
+
+// OPTIMIZATION: Cache model at module level to avoid repeated env access
+let cachedModel: string | null = null;
 
 const BASE_SYSTEM_PROMPT = `You are AInay, a friendly health companion for seniors. Your role is to help users understand their medications and maintain healthy routines.
 
@@ -26,12 +33,14 @@ For general health questions:
 You have access to a Philippine FDA drug database. When users mention medicine names, try to match them to known drugs in this database for accurate information.`;
 
 /**
- * User context for personalized AI responses
+ * Linked patient info for companion context
  */
-export interface UserContext {
-  userName?: string;
-  language?: SupportedLanguage;
-  medications?: Array<{
+export interface LinkedPatientContext {
+  id: string;
+  name: string;
+  email?: string;
+  adherenceRate: number;
+  medications: Array<{
     name: string;
     dosage: string;
     time: string;
@@ -41,9 +50,29 @@ export interface UserContext {
 }
 
 /**
- * Build the system prompt with user context
+ * User context for personalized AI responses
  */
-export function buildSystemPrompt(userContext?: UserContext): string {
+export interface UserContext {
+  userName?: string;
+  language?: SupportedLanguage;
+  userRole?: "patient" | "companion";
+  medications?: Array<{
+    name: string;
+    dosage: string;
+    time: string;
+    taken: boolean;
+    instructions?: string;
+  }>;
+  // For companions - their linked patients
+  linkedPatients?: LinkedPatientContext[];
+}
+
+/**
+ * Build the system prompt with user context (async to load food interactions)
+ */
+export async function buildSystemPrompt(
+  userContext?: UserContext
+): Promise<string> {
   let prompt = BASE_SYSTEM_PROMPT;
 
   // Add language instructions
@@ -54,7 +83,75 @@ export function buildSystemPrompt(userContext?: UserContext): string {
     prompt += `\n\nThe user's name is ${userContext.userName}. Address them warmly by name when appropriate.`;
   }
 
-  if (userContext?.medications && userContext.medications.length > 0) {
+  // Check if user is a companion with linked patients
+  const isCompanion = userContext?.userRole === "companion";
+
+  if (
+    isCompanion &&
+    userContext?.linkedPatients &&
+    userContext.linkedPatients.length > 0
+  ) {
+    // Companion mode - include linked patients information
+    prompt += `\n\n## CAREGIVER MODE
+    
+You are assisting a CAREGIVER who monitors medications for ${userContext.linkedPatients.length} patient(s).
+
+### Linked Patients:`;
+
+    for (const patient of userContext.linkedPatients) {
+      const patientMeds = patient.medications || [];
+      const takenCount = patientMeds.filter((m) => m.taken).length;
+      const pendingCount = patientMeds.length - takenCount;
+
+      prompt += `\n\n#### ${patient.name}`;
+      if (patient.email) {
+        prompt += ` (${patient.email})`;
+      }
+      prompt += `\n- Adherence Rate: ${patient.adherenceRate}%`;
+      prompt += `\n- Today's Progress: ${takenCount}/${patientMeds.length} medications taken`;
+
+      if (patientMeds.length > 0) {
+        prompt += `\n- Medications:`;
+        for (const med of patientMeds) {
+          const status = med.taken ? "✅ Taken" : "⏳ Pending";
+          const instructions = med.instructions ? ` - ${med.instructions}` : "";
+          prompt += `\n  • ${med.name} (${med.dosage}) at ${med.time} [${status}]${instructions}`;
+        }
+
+        // List pending medications specifically
+        const pendingMeds = patientMeds.filter((m) => !m.taken);
+        if (pendingMeds.length > 0) {
+          prompt += `\n- ⚠️ Pending medications: ${pendingMeds
+            .map((m) => m.name)
+            .join(", ")}`;
+        }
+      } else {
+        prompt += `\n- No medications added yet`;
+      }
+    }
+
+    prompt += `\n\n### CAREGIVER CONTEXT:
+- The caregiver can ask about ANY of their patients by name
+- When they mention a patient's name, provide information about that specific patient
+- They can ask questions like "How is [patient name] doing?" or "What medications does [patient name] have pending?"
+- Help them monitor all patients' medication adherence
+- Alert them if any patient has low adherence or many pending medications
+- They can add medications for any of their patients`;
+
+    // Add food interaction warnings for all patients' medications
+    const allMeds = userContext.linkedPatients.flatMap(
+      (p) => p.medications || []
+    );
+    if (allMeds.length > 0) {
+      const foodInteractionsContext = await buildFoodInteractionsContext(
+        allMeds
+      );
+      if (foodInteractionsContext) {
+        prompt += `\n\n${foodInteractionsContext}`;
+      }
+    }
+  } else if (userContext?.medications && userContext.medications.length > 0) {
+    // Patient mode - their own medications
     const medList = userContext.medications
       .map((med) => {
         const status = med.taken ? "✅ Taken" : "⏳ Pending";
@@ -79,6 +176,16 @@ IMPORTANT CONTEXT:
 - Provide reminders about pending medications when relevant
 - If they scan a medicine already in their list, confirm it and mention when they should take it
 - Be proactive about medication adherence and safety`;
+
+    // Add food interaction warnings for user's medications
+    const foodInteractionsContext = await buildFoodInteractionsContext(
+      userContext.medications
+    );
+    if (foodInteractionsContext) {
+      prompt += `\n\n${foodInteractionsContext}`;
+    }
+  } else if (isCompanion) {
+    prompt += `\n\nThe caregiver hasn't linked any patients yet. Encourage them to link patients using the patient's 6-digit link code so they can monitor medications.`;
   } else {
     prompt += `\n\nThe user hasn't added any medications to their list yet. Encourage them to add their medicines so you can help track their schedule and provide reminders.`;
   }
@@ -89,18 +196,17 @@ IMPORTANT CONTEXT:
 // Re-export Drug type for other modules
 export type { Drug };
 
-function getApiKey(): string {
-  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "Missing OpenAI API key. Set VITE_OPENAI_API_KEY in your .env file."
-    );
-  }
-  return apiKey;
-}
-
+/**
+ * Get model with caching
+ * OPTIMIZATION: Only reads from environment once
+ */
 function getModel(): string {
-  return import.meta.env.VITE_OPENAI_MODEL || DEFAULT_MODEL;
+  if (cachedModel) {
+    return cachedModel;
+  }
+
+  cachedModel = import.meta.env.VITE_OPENAI_MODEL || DEFAULT_MODEL;
+  return cachedModel;
 }
 
 export interface OpenAIMessage {
@@ -124,21 +230,19 @@ export interface ChatCompletionOptions {
 }
 
 /**
- * Send a chat completion request to OpenAI (supports vision when images are included)
+ * Send a chat completion request via backend proxy (supports vision when images are included)
  */
 export async function chatCompletion(
   options: ChatCompletionOptions
 ): Promise<string> {
-  const apiKey = getApiKey();
   const { messages, temperature = 0.7, userContext } = options;
 
-  const systemPrompt = buildSystemPrompt(userContext);
+  const systemPrompt = await buildSystemPrompt(userContext);
 
-  const response = await fetch(OPENAI_API_URL, {
+  const response = await fetch(OPENAI_CHAT_PROXY, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: getModel(),
@@ -151,7 +255,7 @@ export async function chatCompletion(
   const data = await response.json();
 
   if (!response.ok) {
-    const apiError = data?.error?.message ?? response.statusText;
+    const apiError = data?.error ?? response.statusText;
     throw new Error(`OpenAI request failed: ${apiError}`);
   }
 
@@ -192,28 +296,30 @@ export async function analyzeMedicineImages(
 }
 
 /**
- * Transcribe audio using OpenAI Whisper API
+ * Transcribe audio via backend proxy (Whisper API)
  */
 export async function transcribeAudio(audioBlob: Blob): Promise<string> {
-  const apiKey = getApiKey();
+  // Convert blob to base64 for JSON transport
+  const arrayBuffer = await audioBlob.arrayBuffer();
+  const base64Audio = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
 
-  const formData = new FormData();
-  formData.append("file", audioBlob, "recording.webm");
-  formData.append("model", WHISPER_MODEL);
-  formData.append("language", "en");
-
-  const response = await fetch(WHISPER_API_URL, {
+  const response = await fetch(OPENAI_TRANSCRIBE_PROXY, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
     },
-    body: formData,
+    body: JSON.stringify({
+      audio: base64Audio,
+      filename: "recording.webm",
+      model: WHISPER_MODEL,
+      language: "en",
+    }),
   });
 
   const data = await response.json();
 
   if (!response.ok) {
-    const apiError = data?.error?.message ?? response.statusText;
+    const apiError = data?.error ?? response.statusText;
     throw new Error(`Whisper transcription failed: ${apiError}`);
   }
 
@@ -244,22 +350,26 @@ export function fileToDataUrl(file: File): Promise<string> {
 export async function extractMedicinesFromAIResponse(
   responseText: string
 ): Promise<ExtractedMedicine[]> {
-  const apiKey = getApiKey();
-
   const extractPrompt = `Analyze this AI assistant response about medicines and extract ALL medicines mentioned.
-For each medicine found, extract: name, dosage, time to take, and instructions.
+For each medicine found, extract: name, dosage, time, frequency, and instructions.
 
 Return a JSON array. If no medicines are found, return an empty array [].
 Return ONLY the JSON array, no other text.
 
-Example output:
-[{"name": "Metformin", "dosage": "500mg", "time": "After breakfast", "instructions": "Take with food"}]`;
+Fields:
+- name: Medicine name
+- dosage: Amount (e.g., "500mg")
+- time: Clock time in "H:MM AM/PM" format. Default "8:00 AM"
+- frequency: One of "once_daily", "twice_daily", "three_times_daily", "four_times_daily", "as_needed". Default "once_daily"
+- instructions: Special instructions
 
-  const response = await fetch(OPENAI_API_URL, {
+Example output:
+[{"name": "Metformin", "dosage": "500mg", "time": "8:00 AM", "frequency": "twice_daily", "instructions": "Take with food"}]`;
+
+  const response = await fetch(OPENAI_CHAT_PROXY, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: FAST_MODEL,
@@ -326,6 +436,7 @@ export interface ExtractedMedicine {
   name: string;
   dosage: string;
   time: string;
+  frequency?: string;
   instructions: string;
 }
 
@@ -338,32 +449,47 @@ You have access to a Philippine FDA drug database. Match medicine names to their
 Return a JSON array of objects, where each object has these fields:
 - name: The medicine name (prefer brand name if recognized, or generic name)
 - dosage: The dosage amount (e.g., "500mg", "10mg")
-- time: Suggested time to take (e.g., "8:00 AM", "After breakfast", "Twice daily")
-- instructions: Any special instructions (e.g., "Take with food", "Avoid alcohol")
+- time: Leave EMPTY string "" if no specific time mentioned. Only fill if a specific time is stated (e.g., "morning" → "8:00 AM", "bedtime" → "9:00 PM").
+- frequency: How often to take it. CRITICAL frequency mapping:
+  * "once daily", "once a day", "1x daily" → "once_daily"
+  * "twice daily", "twice a day", "2x daily", "every 12 hours" → "twice_daily"  
+  * "three times daily", "3x daily", "every 8 hours" → "three_times_daily"
+  * "four times daily", "4x daily", "every 6 hours" → "four_times_daily"
+  * "as needed", "PRN", "every 4 hours", "every 4-6 hours", "when needed", "for pain", "for fever" → "as_needed"
+  * Default to "once_daily" ONLY if truly no frequency info
+- instructions: Any special instructions (e.g., "Take with food", "Avoid alcohol"). Include the original dosing instructions here (e.g., "Take every 4-6 hours for pain")
 
-If any field cannot be determined for a medicine, use an empty string.
+CRITICAL: If instructions say "every X hours" or "as needed" or "PRN", frequency MUST be "as_needed".
+
 Return ONLY the JSON array, no other text.
 
 Example output for multiple medicines:
 [
-  {"name": "Metformin", "dosage": "500mg", "time": "8:00 AM", "instructions": "Take with food"},
-  {"name": "Lisinopril", "dosage": "10mg", "time": "9:00 PM", "instructions": ""}
+  {"name": "Metformin", "dosage": "500mg", "time": "8:00 AM", "frequency": "twice_daily", "instructions": "Take with food"},
+  {"name": "Lisinopril", "dosage": "10mg", "time": "9:00 PM", "frequency": "once_daily", "instructions": ""}
 ]
 
-Example output for single medicine:
-[{"name": "Aspirin", "dosage": "81mg", "time": "Morning", "instructions": "Take with water"}]`;
+Example for "Take 1 tab every 4 hours or as needed":
+[{"name": "Paracetamol", "dosage": "1 tab", "time": "", "frequency": "as_needed", "instructions": "Take every 4 hours or as needed"}]`;
 
 const SINGLE_EXTRACTION_PROMPT = `Extract medicine information from the provided input. Return a JSON object with these fields:
 - name: The medicine name (generic or brand name)
 - dosage: The dosage amount (e.g., "500mg", "10mg")
-- time: Suggested time to take (e.g., "8:00 AM", "After breakfast", "Twice daily")
-- instructions: Any special instructions (e.g., "Take with food", "Avoid alcohol")
+- time: Leave EMPTY string "" if no specific time mentioned. Only fill if a specific time is stated.
+- frequency: How often to take it. CRITICAL mapping:
+  * "once daily", "1x daily" → "once_daily"
+  * "twice daily", "2x daily", "every 12 hours" → "twice_daily"
+  * "three times daily", "3x daily", "every 8 hours" → "three_times_daily"
+  * "four times daily", "4x daily", "every 6 hours" → "four_times_daily"
+  * "as needed", "PRN", "every 4 hours", "every 4-6 hours", "when needed" → "as_needed"
+- instructions: Any special instructions. Include original dosing text (e.g., "Take every 4 hours as needed")
 
-If any field cannot be determined, use an empty string.
+CRITICAL: "every X hours" or "as needed" or "PRN" → frequency MUST be "as_needed".
+
 Return ONLY the JSON object, no other text.
 
-Example output:
-{"name": "Metformin", "dosage": "500mg", "time": "8:00 AM", "instructions": "Take with food"}`;
+Example for "Take 1 tab every 4 hours":
+{"name": "Paracetamol", "dosage": "1 tab", "time": "", "frequency": "as_needed", "instructions": "Take every 4 hours"}`;
 
 /**
  * Extract structured medicine data from text (voice transcription) - single medicine
@@ -371,13 +497,10 @@ Example output:
 export async function extractMedicineFromText(
   text: string
 ): Promise<ExtractedMedicine> {
-  const apiKey = getApiKey();
-
-  const response = await fetch(OPENAI_API_URL, {
+  const response = await fetch(OPENAI_CHAT_PROXY, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: FAST_MODEL, // Fast model for extraction
@@ -393,7 +516,7 @@ export async function extractMedicineFromText(
   const data = await response.json();
 
   if (!response.ok) {
-    const apiError = data?.error?.message ?? response.statusText;
+    const apiError = data?.error ?? response.statusText;
     throw new Error(`OpenAI request failed: ${apiError}`);
   }
 
@@ -421,13 +544,10 @@ export async function extractMedicineFromText(
 export async function extractMultipleMedicinesFromText(
   text: string
 ): Promise<ExtractedMedicine[]> {
-  const apiKey = getApiKey();
-
-  const response = await fetch(OPENAI_API_URL, {
+  const response = await fetch(OPENAI_CHAT_PROXY, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: FAST_MODEL, // Use fast model for extraction
@@ -443,7 +563,7 @@ export async function extractMultipleMedicinesFromText(
   const data = await response.json();
 
   if (!response.ok) {
-    const apiError = data?.error?.message ?? response.statusText;
+    const apiError = data?.error ?? response.statusText;
     throw new Error(`OpenAI request failed: ${apiError}`);
   }
 
@@ -470,8 +590,6 @@ export async function extractMultipleMedicinesFromText(
 export async function extractMedicineFromImage(
   imageDataUrl: string
 ): Promise<ExtractedMedicine> {
-  const apiKey = getApiKey();
-
   const content: OpenAIMessageContent[] = [
     {
       type: "text",
@@ -483,11 +601,10 @@ export async function extractMedicineFromImage(
     },
   ];
 
-  const response = await fetch(OPENAI_API_URL, {
+  const response = await fetch(OPENAI_CHAT_PROXY, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: getModel(),
@@ -500,7 +617,7 @@ export async function extractMedicineFromImage(
   const data = await response.json();
 
   if (!response.ok) {
-    const apiError = data?.error?.message ?? response.statusText;
+    const apiError = data?.error ?? response.statusText;
     throw new Error(`OpenAI request failed: ${apiError}`);
   }
 
@@ -523,8 +640,6 @@ export async function extractMedicineFromImage(
 export async function extractMultipleMedicinesFromImages(
   imageDataUrls: string[]
 ): Promise<ExtractedMedicine[]> {
-  const apiKey = getApiKey();
-
   const content: OpenAIMessageContent[] = [
     {
       type: "text",
@@ -536,11 +651,10 @@ export async function extractMultipleMedicinesFromImages(
     })),
   ];
 
-  const response = await fetch(OPENAI_API_URL, {
+  const response = await fetch(OPENAI_CHAT_PROXY, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: getModel(),
@@ -553,7 +667,7 @@ export async function extractMultipleMedicinesFromImages(
   const data = await response.json();
 
   if (!response.ok) {
-    const apiError = data?.error?.message ?? response.statusText;
+    const apiError = data?.error ?? response.statusText;
     throw new Error(`OpenAI request failed: ${apiError}`);
   }
 
@@ -594,11 +708,12 @@ export async function enhanceMedicinesWithDatabase(
     if (matches.length > 0) {
       const match = matches[0];
 
-      // Use the database name (prefer brand name)
+      // Use the database name (prefer brand name), preserve ALL extracted fields
       const enhancedMed: ExtractedMedicine = {
         name: match.brandName || match.genericName || med.name,
         dosage: med.dosage || match.strength || "",
         time: med.time,
+        frequency: med.frequency, // IMPORTANT: preserve frequency!
         instructions: med.instructions,
       };
 

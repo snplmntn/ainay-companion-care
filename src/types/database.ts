@@ -34,6 +34,8 @@ export interface Database {
           name: string;
           role: "patient" | "companion";
           link_code: string | null; // Unique code for patients to share with companions
+          email_reminder_enabled: boolean; // Whether to send email reminders before medication intake
+          email_reminder_minutes: number; // Minutes before scheduled time to send reminder
           created_at: string;
           updated_at: string;
         };
@@ -43,6 +45,8 @@ export interface Database {
           name: string;
           role: "patient" | "companion";
           link_code?: string | null;
+          email_reminder_enabled?: boolean;
+          email_reminder_minutes?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -52,6 +56,8 @@ export interface Database {
           name?: string;
           role?: "patient" | "companion";
           link_code?: string | null;
+          email_reminder_enabled?: boolean;
+          email_reminder_minutes?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -68,6 +74,8 @@ export interface Database {
           frequency: FrequencyType;
           custom_frequency: number | null;
           time_period: string;
+          start_date: string | null;
+          end_date: string | null;
           start_time: string;
           next_day_mode: NextDayMode;
           interval_minutes: number | null;
@@ -90,6 +98,8 @@ export interface Database {
           frequency?: FrequencyType;
           custom_frequency?: number | null;
           time_period?: string;
+          start_date?: string | null;
+          end_date?: string | null;
           start_time?: string;
           next_day_mode?: NextDayMode;
           interval_minutes?: number | null;
@@ -111,6 +121,8 @@ export interface Database {
           frequency?: FrequencyType;
           custom_frequency?: number | null;
           time_period?: string;
+          start_date?: string | null;
+          end_date?: string | null;
           start_time?: string;
           next_day_mode?: NextDayMode;
           interval_minutes?: number | null;

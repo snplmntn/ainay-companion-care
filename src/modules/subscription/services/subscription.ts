@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import type { DbSubscription, DbPaymentHistory } from "@/types/database";
 import type { SubscriptionTier, SubscriptionStatus } from "../types";
 
@@ -54,7 +54,7 @@ function createDefaultDemoSubscription(userId: string): DbSubscription {
 export async function getUserSubscription(
   userId: string
 ): Promise<{ subscription: DbSubscription | null; error: string | null }> {
-  if (!supabase) {
+  if (!isSupabaseConfigured) {
     // Demo mode - use localStorage
     const demoSub = getDemoSubscription();
     if (demoSub) {
@@ -95,7 +95,7 @@ export async function getUserSubscription(
 export async function createFreeSubscription(
   userId: string
 ): Promise<{ subscription: DbSubscription | null; error: string | null }> {
-  if (!supabase) {
+  if (!isSupabaseConfigured) {
     const freeSub = createDefaultDemoSubscription(userId);
     setDemoSubscription(freeSub);
     return { subscription: freeSub, error: null };
@@ -125,7 +125,7 @@ export async function upgradeSubscription(
   payrexCheckoutId: string,
   payrexPaymentId?: string
 ): Promise<{ subscription: DbSubscription | null; error: string | null }> {
-  if (!supabase) {
+  if (!isSupabaseConfigured) {
     // Demo mode - save to localStorage
     const upgradedSub: DbSubscription = {
       id: "demo-upgraded",
@@ -170,7 +170,7 @@ export async function upgradeSubscription(
 export async function cancelSubscription(
   userId: string
 ): Promise<{ error: string | null }> {
-  if (!supabase) {
+  if (!isSupabaseConfigured) {
     return { error: null };
   }
 
@@ -191,7 +191,7 @@ export async function cancelSubscription(
 export async function downgradeToFree(
   userId: string
 ): Promise<{ error: string | null }> {
-  if (!supabase) {
+  if (!isSupabaseConfigured) {
     // Demo mode - reset to free in localStorage
     const freeSub = createDefaultDemoSubscription(userId);
     setDemoSubscription(freeSub);
@@ -227,7 +227,7 @@ export async function recordPayment(
   payrexPaymentId?: string,
   description?: string
 ): Promise<{ payment: DbPaymentHistory | null; error: string | null }> {
-  if (!supabase) {
+  if (!isSupabaseConfigured) {
     return {
       payment: {
         id: "demo-payment",
@@ -270,7 +270,7 @@ export async function recordPayment(
 export async function getPaymentHistory(
   userId: string
 ): Promise<{ payments: DbPaymentHistory[]; error: string | null }> {
-  if (!supabase) {
+  if (!isSupabaseConfigured) {
     return { payments: [], error: null };
   }
 
@@ -291,7 +291,7 @@ export async function updatePaymentStatus(
   status: DbPaymentHistory["status"],
   payrexPaymentId?: string
 ): Promise<{ error: string | null }> {
-  if (!supabase) {
+  if (!isSupabaseConfigured) {
     return { error: null };
   }
 

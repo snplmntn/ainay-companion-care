@@ -51,7 +51,9 @@ export interface ExtractedMedicineData {
   category: MedicationCategory;
   frequency: FrequencyType;
   customFrequency?: number; // Only used when frequency is "custom"
-  timePeriod: string; // e.g., "7 days", "30 days", "ongoing"
+  timePeriod: string; // e.g., "7", "14", "30", "60", "90", "ongoing" (days or ongoing)
+  startDate?: string; // ISO date string (YYYY-MM-DD)
+  endDate?: string; // ISO date string (YYYY-MM-DD), computed from startDate + timePeriod
   instructions?: string;
   source: "scan" | "voice" | "manual";
   imageUrl?: string; // Optional reference photo
@@ -87,6 +89,8 @@ export interface EnhancedMedication {
   frequency: FrequencyType;
   customFrequency?: number;
   timePeriod: string;
+  startDate?: string; // ISO date string (YYYY-MM-DD)
+  endDate?: string; // ISO date string (YYYY-MM-DD)
   instructions?: string;
   imageUrl?: string;
   schedule: MedicationSchedule;
@@ -119,6 +123,8 @@ export interface MedicineFormData {
   frequency: FrequencyType;
   customFrequency?: number;
   timePeriod: string;
+  startDate?: string; // ISO date string (YYYY-MM-DD)
+  endDate?: string; // ISO date string (YYYY-MM-DD)
   instructions: string;
   startTime: string;
   nextDayMode: NextDayMode;

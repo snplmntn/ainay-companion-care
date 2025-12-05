@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Link2,
   Copy,
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export function PatientLinkManager({ onPatientSelect }: Props) {
+  const navigate = useNavigate();
   const {
     userRole,
     linkCode,
@@ -374,7 +376,13 @@ export function PatientLinkManager({ onPatientSelect }: Props) {
               return (
                 <button
                   key={patient.id}
-                  onClick={() => !isPending && onPatientSelect?.(patient.id)}
+                  onClick={() => {
+                    if (!isPending) {
+                      // Navigate to dedicated patient page
+                      navigate(`/companion/patient/${patient.id}`);
+                      onPatientSelect?.(patient.id);
+                    }
+                  }}
                   disabled={isPending}
                   className={`w-full bg-muted rounded-xl p-4 flex items-center gap-4 text-left transition-all ${
                     isPending
@@ -453,4 +461,3 @@ export function PatientLinkManager({ onPatientSelect }: Props) {
     </div>
   );
 }
-

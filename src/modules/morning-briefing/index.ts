@@ -26,6 +26,10 @@ export {
   generateMorningBriefing,
   generateFallbackBriefing,
 } from './services/briefingService';
+export {
+  getDateContext,
+  formatDateForBriefing,
+} from './services/dateService';
 
 // Hooks
 export { useMorningBriefing } from './hooks/useMorningBriefing';

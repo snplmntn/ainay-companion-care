@@ -37,7 +37,7 @@ interface UseRealtimePatientMedicationsReturn {
 /**
  * Convert DB medication to app medication format
  */
-function convertDbMedication(dbMed: DbMedication): Medication {
+function convertDbMedication(dbMed: DbMedication & { start_date?: string | null; end_date?: string | null }): Medication {
   return {
     id: dbMed.id,
     name: dbMed.name,
@@ -50,6 +50,8 @@ function convertDbMedication(dbMed: DbMedication): Medication {
     frequency: (dbMed.frequency as FrequencyType) ?? "once_daily",
     customFrequency: dbMed.custom_frequency ?? undefined,
     timePeriod: dbMed.time_period ?? "ongoing",
+    startDate: dbMed.start_date ?? undefined,
+    endDate: dbMed.end_date ?? undefined,
     startTime: dbMed.start_time ?? "08:00 AM",
     nextDayMode: (dbMed.next_day_mode as NextDayMode) ?? "restart",
     intervalMinutes: dbMed.interval_minutes ?? undefined,
@@ -306,7 +308,16 @@ export function useRealtimeMultiplePatients(
 
   // Subscribe to all patients
   useEffect(() => {
-    if (!enabled || patientIds.length === 0) {
+    if (!enabled) {
+      setIsConnected(false);
+      return;
+    }
+
+    // Mark as connected when enabled - companion is online even without linked patients
+    setIsConnected(true);
+
+    if (patientIds.length === 0) {
+      // No patients to subscribe to, but still "connected" (online)
       return;
     }
 
@@ -325,8 +336,6 @@ export function useRealtimeMultiplePatients(
         channelsRef.current.delete(patientId);
       }
     });
-
-    setIsConnected(true);
 
     return () => {
       // Cleanup all channels

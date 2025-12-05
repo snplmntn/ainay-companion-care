@@ -1,0 +1,30 @@
+# Render Blueprint for AInay Server
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: ainay-server
+    runtime: node
+    region: singapore # Change to your preferred region
+    plan: free # or starter, standard, etc.
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_URL
+        sync: false # Set this manually to your Netlify URL
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PAYREX_SECRET_KEY
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: AInay Companion Care
+      - key: EMAIL_FROM_ADDRESS
+        sync: false
+

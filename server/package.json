@@ -6,14 +6,20 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "generate-vapid-keys": "node -e \"const webpush = require('web-push'); const keys = webpush.generateVAPIDKeys(); console.log('VAPID_PUBLIC_KEY=' + keys.publicKey); console.log('VAPID_PRIVATE_KEY=' + keys.privateKey);\""
   },
   "dependencies": {
+    "@getbrevo/brevo": "^3.0.1",
     "@supabase/supabase-js": "^2.45.4",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
+    "express-rate-limit": "^7.4.0",
+    "node-cron": "^3.0.3",
     "nodemailer": "^6.9.16",
-    "node-cron": "^3.0.3"
+    "payrex-node": "^1.7.2",
+    "web-push": "^3.6.7",
+    "zod": "^3.23.8"
   }
 }

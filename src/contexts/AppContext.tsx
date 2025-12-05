@@ -22,16 +22,23 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 import {
   onAuthStateChange,
   getProfile,
-  getMedications,
+  getMedicationsWithDoses,
   addMedication as addMedicationToDb,
+  addMedicationWithDoses,
+  updateMedicationWithDoses,
+  deactivateMedication,
   toggleMedicationTaken,
+  toggleDoseTaken,
   signOut as supabaseSignOut,
   getLinkCode,
   getLinkedPatients,
   getLinkedCompanions,
   requestPatientLink,
   removeLink,
+  checkAndAutoExpire,
+  updateProfile,
 } from "@/services/supabase";
+import { toast } from "@/hooks/use-toast";
 
 // Note: PendingLinkRequest removed - links are now auto-accepted
 
@@ -55,7 +62,10 @@ interface AppContextType {
     med: Omit<Medication, "id" | "taken" | "doses">
   ) => Promise<void>;
   addEnhancedMedication: (med: EnhancedMedication) => Promise<void>;
+  updateMedication: (id: string, med: Partial<Medication>) => Promise<void>;
+  deleteMedication: (id: string) => Promise<void>;
   toggleMedication: (id: string) => Promise<void>;
+  toggleDose: (medicationId: string, doseId: string) => Promise<void>;
   refreshMedications: () => Promise<void>;
 
   // Companion features
@@ -71,6 +81,12 @@ interface AppContextType {
   unlinkPatientOrCompanion: (linkId: string) => Promise<void>;
   refreshCompanionData: () => Promise<void>;
 
+  // Notification settings
+  updateNotificationSettings: (settings: {
+    email_reminder_enabled?: boolean;
+    email_reminder_minutes?: number;
+  }) => Promise<{ error: string | null }>;
+
   // Auth actions
   signOut: () => Promise<void>;
 }
@@ -78,7 +94,9 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 // Convert DB medication to app medication
-const convertMedication = (dbMed: DbMedication): Medication => ({
+const convertMedication = (
+  dbMed: DbMedication & { doses?: Array<{ id: string; time: string; label: string; taken: boolean; taken_at: string | null; dose_order: number }>; start_date?: string | null; end_date?: string | null }
+): Medication => ({
   id: dbMed.id,
   name: dbMed.name,
   dosage: dbMed.dosage,
@@ -90,11 +108,21 @@ const convertMedication = (dbMed: DbMedication): Medication => ({
   frequency: (dbMed.frequency as FrequencyType) ?? "once_daily",
   customFrequency: dbMed.custom_frequency ?? undefined,
   timePeriod: dbMed.time_period ?? "ongoing",
+  startDate: dbMed.start_date ?? undefined,
+  endDate: dbMed.end_date ?? undefined,
   startTime: dbMed.start_time ?? "08:00 AM",
   nextDayMode: (dbMed.next_day_mode as NextDayMode) ?? "restart",
   intervalMinutes: dbMed.interval_minutes ?? undefined,
   isActive: dbMed.is_active ?? true,
   takenAt: dbMed.taken_at ?? undefined,
+  doses: dbMed.doses?.map((dose) => ({
+    id: dose.id,
+    time: dose.time,
+    label: dose.label,
+    taken: dose.taken,
+    takenAt: dose.taken_at ?? undefined,
+    order: dose.dose_order,
+  })),
 });
 
 export function AppProvider({ children }: { children: ReactNode }) {
@@ -146,8 +174,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Load medications
-      const { medications: userMeds } = await getMedications(userId);
+      // Auto-expire medications before loading them
+      // This ensures expired prescriptions are deactivated
+      const { expired, expiringSoon } = await checkAndAutoExpire(userId);
+      
+      // Notify user about expired medications
+      if (expired.count > 0) {
+        toast({
+          title: `${expired.count} prescription${expired.count > 1 ? "s" : ""} expired`,
+          description: `${expired.names.join(", ")} ${expired.count > 1 ? "have" : "has"} completed. Consult your doctor if you need a refill.`,
+          variant: "default",
+        });
+      }
+
+      // Warn about medications expiring soon
+      if (expiringSoon.length > 0) {
+        const soonNames = expiringSoon
+          .map((m) => `${m.name} (${m.daysRemaining === 0 ? "today" : `${m.daysRemaining}d`})`)
+          .join(", ");
+        toast({
+          title: "Prescriptions ending soon ⚠️",
+          description: `${soonNames}. Consider contacting your doctor for a refill.`,
+        });
+      }
+
+      // Load medications with doses (expired ones are now filtered out)
+      const { medications: userMeds } = await getMedicationsWithDoses(userId);
       setMedications(userMeds.map(convertMedication));
     } catch (error) {
       console.error("Error loading user data:", error);
@@ -216,6 +268,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       frequency: med.frequency,
       custom_frequency: med.customFrequency ?? null,
       time_period: med.timePeriod,
+      start_date: med.startDate ?? null,
+      end_date: med.endDate ?? null,
       start_time: med.startTime,
       next_day_mode: med.nextDayMode,
       interval_minutes: med.intervalMinutes ?? null,
@@ -256,11 +310,125 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Toggle individual dose taken status
+  const toggleDose = async (medicationId: string, doseId: string) => {
+    const medication = medications.find((m) => m.id === medicationId);
+    if (!medication) return;
+
+    const dose = medication.doses?.find((d) => d.id === doseId);
+    if (!dose) return;
+
+    const newTakenStatus = !dose.taken;
+
+    // Optimistic update for the dose
+    setMedications((prev) =>
+      prev.map((med) => {
+        if (med.id !== medicationId) return med;
+        return {
+          ...med,
+          doses: med.doses?.map((d) =>
+            d.id === doseId ? { ...d, taken: newTakenStatus } : d
+          ),
+        };
+      })
+    );
+
+    if (user) {
+      const { error } = await toggleDoseTaken(doseId, newTakenStatus);
+      if (error) {
+        // Revert on error
+        setMedications((prev) =>
+          prev.map((med) => {
+            if (med.id !== medicationId) return med;
+            return {
+              ...med,
+              doses: med.doses?.map((d) =>
+                d.id === doseId ? { ...d, taken: dose.taken } : d
+              ),
+            };
+          })
+        );
+        console.error("Error toggling dose:", error);
+      }
+    }
+  };
+
+  // Update an existing medication
+  const updateMedicationFn = async (id: string, updates: Partial<Medication>) => {
+    const medication = medications.find((m) => m.id === id);
+    if (!medication) return;
+
+    // Optimistic update
+    setMedications((prev) =>
+      prev.map((med) => (med.id === id ? { ...med, ...updates } : med))
+    );
+
+    if (user) {
+      // Prepare data for database update
+      const dbUpdates = {
+        name: updates.name,
+        dosage: updates.dosage,
+        time: updates.time,
+        instructions: updates.instructions ?? null,
+        category: updates.category,
+        image_url: updates.imageUrl ?? null,
+        frequency: updates.frequency,
+        custom_frequency: updates.customFrequency ?? null,
+        time_period: updates.timePeriod,
+        start_date: updates.startDate ?? null,
+        end_date: updates.endDate ?? null,
+        start_time: updates.startTime,
+        next_day_mode: updates.nextDayMode,
+        interval_minutes: updates.intervalMinutes ?? null,
+      };
+
+      // Prepare doses if they exist
+      const dosesData = updates.doses?.map((dose, index) => ({
+        time: dose.time,
+        label: dose.label,
+        taken: dose.taken,
+        dose_order: index + 1,
+      })) ?? [];
+
+      const { error } = await updateMedicationWithDoses(id, dbUpdates, dosesData);
+      if (error) {
+        // Revert on error
+        setMedications((prev) =>
+          prev.map((med) => (med.id === id ? medication : med))
+        );
+        console.error("Error updating medication:", error);
+        throw new Error(error);
+      }
+
+      // Refresh to get updated data from database
+      await refreshMedications();
+    }
+  };
+
+  // Delete (deactivate) a medication
+  const deleteMedicationFn = async (id: string) => {
+    const medication = medications.find((m) => m.id === id);
+    if (!medication) return;
+
+    // Optimistic update - remove from list
+    setMedications((prev) => prev.filter((med) => med.id !== id));
+
+    if (user) {
+      const { error } = await deactivateMedication(id);
+      if (error) {
+        // Revert on error - add back to list
+        setMedications((prev) => [...prev, medication]);
+        console.error("Error deleting medication:", error);
+        throw new Error(error);
+      }
+    }
+  };
+
   // Refresh medications from database
   const refreshMedications = async () => {
     if (!user) return;
 
-    const { medications: userMeds, error } = await getMedications(user.id);
+    const { medications: userMeds, error } = await getMedicationsWithDoses(user.id);
     if (!error) {
       setMedications(userMeds.map(convertMedication));
     }
@@ -268,24 +436,75 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Add enhanced medication with full scheduling support
   const addEnhancedMedication = async (med: EnhancedMedication) => {
-    // Convert enhanced medication to the standard medication format
-    const medication: Omit<Medication, "id" | "taken" | "doses"> = {
+    if (!user) {
+      // Fallback for non-authenticated mode (demo)
+      const newMed: Medication = {
+        id: Date.now().toString(),
+        name: med.name,
+        dosage: med.dosage,
+        time: med.schedule.startTime,
+        instructions: med.instructions,
+        category: med.category,
+        imageUrl: med.imageUrl,
+        frequency: med.frequency,
+        customFrequency: med.customFrequency,
+        timePeriod: med.timePeriod,
+        startTime: med.schedule.startTime,
+        nextDayMode: med.schedule.nextDayMode,
+        intervalMinutes: med.schedule.intervalMinutes,
+        isActive: med.schedule.isActive,
+        taken: false,
+        doses: med.schedule.doses.map((dose, index) => ({
+          id: `${Date.now()}-${index}`,
+          time: dose.time,
+          label: dose.label,
+          taken: false,
+        })),
+      };
+      setMedications((prev) => [...prev, newMed]);
+      return;
+    }
+
+    // Prepare medication data for database
+    const medicationData = {
+      user_id: user.id,
       name: med.name,
       dosage: med.dosage,
       time: med.schedule.startTime,
-      instructions: med.instructions,
+      instructions: med.instructions ?? null,
       category: med.category,
-      imageUrl: med.imageUrl,
+      image_url: med.imageUrl ?? null,
       frequency: med.frequency,
-      customFrequency: med.customFrequency,
-      timePeriod: med.timePeriod,
-      startTime: med.schedule.startTime,
-      nextDayMode: med.schedule.nextDayMode,
-      intervalMinutes: med.schedule.intervalMinutes,
-      isActive: med.schedule.isActive,
+      custom_frequency: med.customFrequency ?? null,
+      time_period: med.timePeriod,
+      start_time: med.schedule.startTime,
+      next_day_mode: med.schedule.nextDayMode,
+      interval_minutes: med.schedule.intervalMinutes,
+      is_active: true,
     };
 
-    await addMedication(medication);
+    // Prepare doses data
+    const dosesData = med.schedule.doses.map((dose, index) => ({
+      time: dose.time,
+      label: dose.label,
+      taken: false,
+      dose_order: index + 1,
+    }));
+
+    const { medication: newMed, error } = await addMedicationWithDoses(
+      medicationData,
+      dosesData
+    );
+
+    if (error) {
+      console.error("Error adding medication with doses:", error);
+      throw new Error(error);
+    }
+
+    if (newMed) {
+      // Refresh to get the full medication with doses
+      await refreshMedications();
+    }
   };
 
   // Refresh companion data
@@ -345,6 +564,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Update notification settings
+  const updateNotificationSettings = async (settings: {
+    email_reminder_enabled?: boolean;
+    email_reminder_minutes?: number;
+  }): Promise<{ error: string | null }> => {
+    if (!user) {
+      return { error: "Not authenticated" };
+    }
+
+    const { error } = await updateProfile(user.id, settings);
+    
+    if (!error && profile) {
+      // Update local profile state
+      setProfile({
+        ...profile,
+        email_reminder_enabled: settings.email_reminder_enabled ?? profile.email_reminder_enabled,
+        email_reminder_minutes: settings.email_reminder_minutes ?? profile.email_reminder_minutes,
+      });
+    }
+
+    return { error };
+  };
+
   // Sign out
   const signOut = async () => {
     if (isSupabaseConfigured) {
@@ -384,7 +626,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         medications,
         addMedication,
         addEnhancedMedication,
+        updateMedication: updateMedicationFn,
+        deleteMedication: deleteMedicationFn,
         toggleMedication,
+        toggleDose,
         refreshMedications,
         linkCode,
         linkedPatients,
@@ -395,6 +640,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         rejectLinkRequest,
         unlinkPatientOrCompanion,
         refreshCompanionData,
+        updateNotificationSettings,
         signOut,
       }}
     >

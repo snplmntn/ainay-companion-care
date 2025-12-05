@@ -5,21 +5,14 @@
 import type { WeatherData, MedicationSummary, BriefingScript } from '../types';
 import type { Medication } from '@/types';
 import { getFriendlyWeatherDescription, getWeatherAdvice } from './weatherService';
-import { getBriefingSystemPrompt, TTS_VOICE, TTS_SPEED } from '../constants';
+import { getDateContext, formatDateForBriefing } from './dateService';
+import { getTodaysHoliday, formatHolidayForBriefing } from '../constants/holidays';
+import { getBriefingSystemPrompt, TTS_VOICE, TTS_SPEED, RADIO_SHOW_NAME } from '../constants';
 
-const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
-const OPENAI_TTS_URL = 'https://api.openai.com/v1/audio/speech';
-
-/**
- * Get OpenAI API key from environment
- */
-function getApiKey(): string {
-  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('Missing OpenAI API key. Set VITE_OPENAI_API_KEY in your .env file.');
-  }
-  return apiKey;
-}
+// Use backend proxy instead of direct OpenAI calls (avoids CORS + keeps API key secure)
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const OPENAI_CHAT_PROXY = `${API_BASE_URL}/api/openai/chat`;
+const OPENAI_TTS_PROXY = `${API_BASE_URL}/api/openai/tts`;
 
 /**
  * Convert medications to summary for briefing
@@ -65,7 +58,7 @@ function getTimeOfDay(): 'morning' | 'afternoon' | 'evening' {
 }
 
 /**
- * Build the prompt context for GPT-4o
+ * Build the prompt context for GPT-4o (radio-style)
  */
 function buildBriefingPrompt(
   userName: string,
@@ -73,11 +66,24 @@ function buildBriefingPrompt(
   medications: MedicationSummary
 ): string {
   const timeOfDay = getTimeOfDay();
+  const dateContext = getDateContext();
+  const holiday = getTodaysHoliday();
   
+  // Date & Day context
+  const dateInfo = `TODAY'S DATE: ${dateContext.fullDate}
+DAY CONTEXT: ${dateContext.weekContext}${dateContext.isWeekend ? ' (Weekend!)' : ''}`;
+
+  // Holiday context
+  const holidayContext = holiday
+    ? `🎉 SPECIAL DAY: Today is ${holiday.name}! ${holiday.message}`
+    : '';
+
+  // Weather context
   const weatherContext = weather
     ? `CURRENT WEATHER in ${weather.city}: ${weather.temperature}°C, ${getFriendlyWeatherDescription(weather)}. Suggested advice: ${getWeatherAdvice(weather)}.`
     : 'Weather data not available - skip weather mention.';
 
+  // Medication context
   const medList = medications.todaysMedicines
     .map((m) => `- ${m.name} (${m.dosage}) at ${m.time}${m.taken ? ' (already taken)' : ''}`)
     .join('\n');
@@ -85,43 +91,55 @@ function buildBriefingPrompt(
   const medContext =
     medications.total > 0
       ? `
-Medications for today (${medications.total} total, ${medications.pending} still to take):
+MEDICATIONS for today (${medications.total} total, ${medications.pending} still to take):
 ${medList}
 ${medications.nextMedicine ? `Next medicine to take: ${medications.nextMedicine.name} at ${medications.nextMedicine.time}` : 'All medicines taken for today!'}`
       : 'No medications scheduled for today.';
 
-  return `Create a ${timeOfDay.toUpperCase()} briefing for ${userName}.
+  return `Create a RADIO-STYLE ${timeOfDay.toUpperCase()} briefing for ${userName}.
 
-IMPORTANT: It is currently ${timeOfDay}. Start with "Good ${timeOfDay}, ${userName}!"
+=== CONTEXT DATA ===
+${dateInfo}
+${holidayContext ? '\n' + holidayContext : ''}
 
 ${weatherContext}
 
 ${medContext}
 
-Remember: Keep it to 3-4 sentences, warm and caring tone, like a friendly family member. Use the ACTUAL weather data provided above.`;
+=== DELIVERY INSTRUCTIONS ===
+1. Open with: "This is ${RADIO_SHOW_NAME}!" followed by a warm greeting that includes today's date/day
+2. ${holiday ? `Acknowledge ${holiday.name} warmly - make it feel special!` : 'Include a friendly comment about the day of the week'}
+3. Share the weather with caring, practical advice
+4. Mention their medications encouragingly
+5. Close with a warm, memorable sign-off that feels like YOUR signature style
+
+Remember: This is ${userName}'s personal radio show - make them feel special and cared for! Use the ACTUAL data provided above.`;
 }
 
 /**
- * Generate briefing script using GPT-4o
+ * Generate briefing script using GPT-4o via backend proxy
  */
 export async function generateBriefingScript(
   userName: string,
   weather: WeatherData | null,
   medications: MedicationSummary
 ): Promise<BriefingScript> {
-  const apiKey = getApiKey();
   const timeOfDay = getTimeOfDay();
   const userPrompt = buildBriefingPrompt(userName, weather, medications);
   const systemPrompt = getBriefingSystemPrompt(timeOfDay);
 
-  console.log(`🎙️ Generating ${timeOfDay} briefing for ${userName}`);
-  console.log(`🌤️ Weather context:`, weather ? `${weather.temperature}°C, ${weather.condition} in ${weather.city}` : 'No weather data');
+  const dateContext = getDateContext();
+  const holiday = getTodaysHoliday();
+  
+  console.log(`📻 Generating ${RADIO_SHOW_NAME} ${timeOfDay} briefing for ${userName}`);
+  console.log(`📅 Date: ${dateContext.fullDate}`);
+  if (holiday) console.log(`🎉 Special day: ${holiday.name}`);
+  console.log(`🌤️ Weather:`, weather ? `${weather.temperature}°C, ${weather.condition} in ${weather.city}` : 'No weather data');
 
-  const response = await fetch(OPENAI_API_URL, {
+  const response = await fetch(OPENAI_CHAT_PROXY, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: 'gpt-4o',
@@ -137,7 +155,7 @@ export async function generateBriefingScript(
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(data?.error?.message ?? `Failed to generate script: ${response.statusText}`);
+    throw new Error(data?.error ?? `Failed to generate script: ${response.statusText}`);
   }
 
   const scriptText = data?.choices?.[0]?.message?.content?.trim();
@@ -152,17 +170,14 @@ export async function generateBriefingScript(
 }
 
 /**
- * Generate TTS audio from script using OpenAI TTS API
+ * Generate TTS audio from script via backend proxy
  * Returns a blob URL that can be played directly
  */
 export async function generateBriefingAudio(script: string): Promise<string> {
-  const apiKey = getApiKey();
-
-  const response = await fetch(OPENAI_TTS_URL, {
+  const response = await fetch(OPENAI_TTS_PROXY, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: 'tts-1',
@@ -176,7 +191,7 @@ export async function generateBriefingAudio(script: string): Promise<string> {
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(
-      errorData?.error?.message ?? `Failed to generate audio: ${response.statusText}`
+      errorData?.error ?? `Failed to generate audio: ${response.statusText}`
     );
   }
 
@@ -208,7 +223,7 @@ export async function generateMorningBriefing(
 }
 
 /**
- * Generate a fallback briefing when APIs fail
+ * Generate a fallback briefing when APIs fail (radio-style)
  */
 export function generateFallbackBriefing(
   userName: string,
@@ -217,12 +232,22 @@ export function generateFallbackBriefing(
 ): string {
   const greeting = getTimeBasedGreeting();
   const medSummary = getMedicationSummary(medications);
+  const dateContext = getDateContext();
+  const holiday = getTodaysHoliday();
 
-  let briefing = `${greeting}, ${userName}!`;
+  // Radio-style intro with date
+  let briefing = `This is ${RADIO_SHOW_NAME}! ${greeting}, ${userName}! Today is ${dateContext.dayName}, ${dateContext.monthName} ${dateContext.dayOfMonth}.`;
+
+  // Add holiday mention if applicable
+  if (holiday) {
+    briefing += ` ${holiday.message}`;
+  } else {
+    briefing += ` ${dateContext.weekContext}`;
+  }
 
   // Add weather if available
   if (weather) {
-    briefing += ` It's ${weather.temperature}°C and ${getFriendlyWeatherDescription(weather)} in ${weather.city} today.`;
+    briefing += ` It's ${weather.temperature}°C and ${getFriendlyWeatherDescription(weather)} in ${weather.city}.`;
   }
 
   // Add medication info
@@ -235,7 +260,8 @@ export function generateFallbackBriefing(
     briefing += ' No medicines scheduled for today.';
   }
 
-  briefing += ' Take care and have a wonderful day!';
+  // Radio-style sign-off
+  briefing += " That's your update for now. Take care and stay wonderful!";
 
   return briefing;
 }

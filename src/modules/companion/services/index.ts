@@ -4,4 +4,5 @@
 
 export * from "./companionMedication";
 export * from "./realtimeSync";
+export * from "./pushNotificationService";
 

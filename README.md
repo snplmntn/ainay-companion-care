@@ -146,7 +146,7 @@ A personalized audio briefing that plays when users open the app - like a friend
 
 ### Example output
 
-> "Good morning, Lola! It's going to be rainy in Manila today, so don't forget your jacket. You have 3 medicines today. Your first one is Losartan at 8:00 AM after breakfast. Stay safe!"
+> "Good morning! It's going to be rainy in Manila today, so don't forget your jacket. You have 3 medicines today. Your first one is Losartan at 8:00 AM after breakfast. Stay safe!"
 
 ### Features powered by Morning Briefing
 

@@ -65,14 +65,166 @@ export const NEXT_DAY_MODE_OPTIONS: {
 export const TIME_PERIOD_OPTIONS: {
   value: string;
   label: string;
+  days: number | null; // null for ongoing
 }[] = [
-  { value: "7", label: "7 days" },
-  { value: "14", label: "14 days" },
-  { value: "30", label: "30 days (1 month)" },
-  { value: "60", label: "60 days (2 months)" },
-  { value: "90", label: "90 days (3 months)" },
-  { value: "ongoing", label: "Ongoing (no end date)" },
+  { value: "3", label: "3 days", days: 3 },
+  { value: "5", label: "5 days", days: 5 },
+  { value: "7", label: "7 days (1 week)", days: 7 },
+  { value: "10", label: "10 days", days: 10 },
+  { value: "14", label: "14 days (2 weeks)", days: 14 },
+  { value: "21", label: "21 days (3 weeks)", days: 21 },
+  { value: "30", label: "30 days (1 month)", days: 30 },
+  { value: "60", label: "60 days (2 months)", days: 60 },
+  { value: "90", label: "90 days (3 months)", days: 90 },
+  { value: "180", label: "180 days (6 months)", days: 180 },
+  { value: "365", label: "365 days (1 year)", days: 365 },
+  { value: "ongoing", label: "Ongoing (no end date)", days: null },
 ];
+
+/**
+ * Calculate end date from start date and time period
+ * @param startDate - ISO date string (YYYY-MM-DD) or Date object
+ * @param timePeriod - Number of days as string or "ongoing"
+ * @returns ISO date string (YYYY-MM-DD) or null for ongoing
+ */
+export function calculateEndDate(
+  startDate: string | Date,
+  timePeriod: string
+): string | null {
+  if (timePeriod === "ongoing") return null;
+  
+  const days = parseInt(timePeriod, 10);
+  if (isNaN(days)) return null;
+  
+  const start = typeof startDate === "string" ? new Date(startDate) : startDate;
+  const end = new Date(start);
+  end.setDate(end.getDate() + days);
+  
+  return end.toISOString().split("T")[0];
+}
+
+/**
+ * Calculate remaining days for a prescription
+ * @param endDate - ISO date string (YYYY-MM-DD) or null for ongoing
+ * @returns Number of remaining days, or null for ongoing, or 0 if expired
+ */
+export function getRemainingDays(endDate: string | null | undefined): number | null {
+  if (!endDate) return null; // Ongoing
+  
+  const end = new Date(endDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  
+  const diffTime = end.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  return Math.max(0, diffDays);
+}
+
+/**
+ * Check if a prescription is expired
+ * @param endDate - ISO date string (YYYY-MM-DD) or null for ongoing
+ * @returns true if expired, false otherwise
+ */
+export function isPrescriptionExpired(endDate: string | null | undefined): boolean {
+  if (!endDate) return false; // Ongoing never expires
+  
+  const remaining = getRemainingDays(endDate);
+  return remaining !== null && remaining <= 0;
+}
+
+/**
+ * Check if a prescription is ending soon (within threshold days)
+ * @param endDate - ISO date string (YYYY-MM-DD) or null for ongoing
+ * @param thresholdDays - Number of days to consider "ending soon" (default: 3)
+ * @returns true if ending soon, false otherwise
+ */
+export function isPrescriptionEndingSoon(
+  endDate: string | null | undefined,
+  thresholdDays: number = 3
+): boolean {
+  if (!endDate) return false; // Ongoing never ends
+  
+  const remaining = getRemainingDays(endDate);
+  return remaining !== null && remaining > 0 && remaining <= thresholdDays;
+}
+
+/**
+ * Format remaining days for display
+ * @param endDate - ISO date string (YYYY-MM-DD) or null for ongoing
+ * @returns Formatted string like "5 days left", "Last day!", "Expired", or "Ongoing"
+ */
+export function formatRemainingDays(endDate: string | null | undefined): string {
+  if (!endDate) return "Ongoing";
+  
+  const remaining = getRemainingDays(endDate);
+  if (remaining === null) return "Ongoing";
+  if (remaining === 0) return "Last day!";
+  if (remaining < 0) return "Expired";
+  if (remaining === 1) return "1 day left";
+  
+  return `${remaining} days left`;
+}
+
+/**
+ * Get the status color class for remaining days
+ * @param endDate - ISO date string (YYYY-MM-DD) or null for ongoing
+ * @returns Tailwind CSS classes for the status
+ */
+export function getDurationStatusColor(endDate: string | null | undefined): {
+  bg: string;
+  text: string;
+  border: string;
+} {
+  if (!endDate) {
+    return {
+      bg: "bg-gray-100 dark:bg-gray-800",
+      text: "text-gray-600 dark:text-gray-400",
+      border: "border-gray-200 dark:border-gray-700",
+    };
+  }
+  
+  const remaining = getRemainingDays(endDate);
+  
+  if (remaining === null || remaining > 7) {
+    return {
+      bg: "bg-green-50 dark:bg-green-950/30",
+      text: "text-green-700 dark:text-green-400",
+      border: "border-green-200 dark:border-green-800",
+    };
+  }
+  
+  if (remaining > 3) {
+    return {
+      bg: "bg-amber-50 dark:bg-amber-950/30",
+      text: "text-amber-700 dark:text-amber-400",
+      border: "border-amber-200 dark:border-amber-800",
+    };
+  }
+  
+  if (remaining > 0) {
+    return {
+      bg: "bg-orange-50 dark:bg-orange-950/30",
+      text: "text-orange-700 dark:text-orange-400",
+      border: "border-orange-200 dark:border-orange-800",
+    };
+  }
+  
+  // Expired or last day
+  return {
+    bg: "bg-red-50 dark:bg-red-950/30",
+    text: "text-red-700 dark:text-red-400",
+    border: "border-red-200 dark:border-red-800",
+  };
+}
+
+/**
+ * Get today's date as ISO string (YYYY-MM-DD)
+ */
+export function getTodayDateString(): string {
+  return new Date().toISOString().split("T")[0];
+}
 
 /**
  * Default dose labels based on time of day

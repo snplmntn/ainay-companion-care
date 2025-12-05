@@ -36,6 +36,8 @@ export interface Medication {
   frequency: FrequencyType;
   customFrequency?: number;
   timePeriod: string;
+  startDate?: string; // ISO date string (YYYY-MM-DD) - when prescription starts
+  endDate?: string; // ISO date string (YYYY-MM-DD) - when prescription ends (null for ongoing)
   startTime: string;
   nextDayMode: NextDayMode;
   intervalMinutes?: number;
@@ -62,12 +64,12 @@ export interface SimpleMedication {
  */
 export interface ScheduledDose {
   id: string;
-  medicationId: string;
+  medicationId?: string;
   time: string;
   label: string; // e.g., "Morning", "Afternoon", "Evening"
   taken: boolean;
   takenAt?: string;
-  doseOrder: number;
+  order?: number;
 }
 
 export interface ChatMessage {

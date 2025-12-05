@@ -16,7 +16,9 @@ export const ADHERENCE_COLORS = {
   POOR: "text-red-600 bg-red-100",
 } as const;
 
-export function getAdherenceLevel(rate: number): keyof typeof ADHERENCE_THRESHOLDS {
+export function getAdherenceLevel(
+  rate: number
+): keyof typeof ADHERENCE_THRESHOLDS {
   if (rate >= ADHERENCE_THRESHOLDS.EXCELLENT) return "EXCELLENT";
   if (rate >= ADHERENCE_THRESHOLDS.GOOD) return "GOOD";
   if (rate >= ADHERENCE_THRESHOLDS.FAIR) return "FAIR";
@@ -26,4 +28,3 @@ export function getAdherenceLevel(rate: number): keyof typeof ADHERENCE_THRESHOL
 export function getAdherenceColor(rate: number): string {
   return ADHERENCE_COLORS[getAdherenceLevel(rate)];
 }
-

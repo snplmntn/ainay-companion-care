@@ -1,5 +1,6 @@
 // ============================================
 // Drug Interaction Checking Service
+// OPTIMIZED: Uses indexed lookups for O(1) access
 // ============================================
 
 import type { Medication } from "@/types";
@@ -43,6 +44,45 @@ export interface DetectedInteraction {
 
 // Cache for loaded interactions
 let interactionsCache: DrugInteraction[] | null = null;
+// OPTIMIZATION: Index for O(1) lookups by drug name
+let interactionIndex: Map<string, DrugInteraction[]> | null = null;
+let indexBuildPromise: Promise<void> | null = null;
+
+/**
+ * Build the interaction index for fast lookups
+ * Maps normalized drug names to their interactions
+ */
+function buildInteractionIndex(
+  interactions: DrugInteraction[]
+): Map<string, DrugInteraction[]> {
+  const index = new Map<string, DrugInteraction[]>();
+
+  for (const interaction of interactions) {
+    // Index by both drug names (normalized)
+    const drugAKey = normalizeDrugName(interaction.drug_a);
+    const drugBKey = normalizeDrugName(interaction.drug_b);
+
+    // Also index by primary name (first word)
+    const drugAPrimary = extractPrimaryName(interaction.drug_a);
+    const drugBPrimary = extractPrimaryName(interaction.drug_b);
+
+    const keysToIndex = [drugAKey, drugBKey, drugAPrimary, drugBPrimary];
+
+    for (const key of keysToIndex) {
+      if (key.length < 3) continue; // Skip very short keys
+      const existing = index.get(key) || [];
+      // Avoid duplicates
+      if (
+        !existing.some((i) => i.interaction_id === interaction.interaction_id)
+      ) {
+        existing.push(interaction);
+        index.set(key, existing);
+      }
+    }
+  }
+
+  return index;
+}
 
 /**
  * Load drug interactions from the JSON file
@@ -60,11 +100,36 @@ async function loadInteractions(): Promise<DrugInteraction[]> {
     }
     const data = await response.json();
     interactionsCache = data as DrugInteraction[];
+
+    // Build index synchronously to ensure it's ready for use
+    interactionIndex = buildInteractionIndex(interactionsCache);
+    console.log(
+      `✅ Drug interactions indexed: ${interactionsCache.length} interactions`
+    );
+
     return interactionsCache;
   } catch (error) {
     console.error("Error loading drug interactions:", error);
     return [];
   }
+}
+
+/**
+ * Ensure index is ready before using it
+ */
+async function ensureIndexReady(): Promise<void> {
+  if (interactionIndex) return;
+
+  if (indexBuildPromise) {
+    await indexBuildPromise;
+    return;
+  }
+
+  indexBuildPromise = (async () => {
+    await loadInteractions();
+  })();
+
+  await indexBuildPromise;
 }
 
 /**
@@ -188,16 +253,56 @@ function drugNamesMatch(drugA: string, drugB: string): boolean {
 }
 
 /**
+ * Get candidate interactions for a drug using the index
+ * OPTIMIZATION: O(1) lookup instead of O(n) scan
+ */
+function getCandidateInteractions(drugName: string): DrugInteraction[] {
+  if (!interactionIndex) return [];
+
+  const candidates = new Set<DrugInteraction>();
+  const normalized = normalizeDrugName(drugName);
+  const primary = extractPrimaryName(drugName);
+
+  // Look up by normalized name
+  const byNormalized = interactionIndex.get(normalized);
+  if (byNormalized) {
+    byNormalized.forEach((i) => candidates.add(i));
+  }
+
+  // Look up by primary name
+  const byPrimary = interactionIndex.get(primary);
+  if (byPrimary) {
+    byPrimary.forEach((i) => candidates.add(i));
+  }
+
+  return Array.from(candidates);
+}
+
+/**
  * Check a new medicine against current medications for interactions
+ * OPTIMIZED: Uses indexed lookups instead of O(n*m) full scan
  */
 export async function checkDrugInteractions(
   newMedicineName: string,
   currentMedications: Medication[]
 ): Promise<InteractionCheckResult> {
-  const interactions = await loadInteractions();
-  const detectedInteractions: DetectedInteraction[] = [];
+  // Ensure index is ready
+  await ensureIndexReady();
 
+  const detectedInteractions: DetectedInteraction[] = [];
   const normalizedNewDrug = normalizeDrugName(newMedicineName);
+
+  // OPTIMIZATION: Get candidate interactions for the new drug using index
+  const newDrugCandidates = getCandidateInteractions(newMedicineName);
+
+  // Also get candidates for all current medications
+  const currentMedCandidates = new Map<string, DrugInteraction[]>();
+  for (const med of currentMedications) {
+    currentMedCandidates.set(med.name, getCandidateInteractions(med.name));
+  }
+
+  // Check only relevant candidates (indexed) instead of all interactions
+  const checkedPairs = new Set<string>();
 
   for (const currentMed of currentMedications) {
     const normalizedCurrentDrug = normalizeDrugName(currentMed.name);
@@ -207,10 +312,23 @@ export async function checkDrugInteractions(
       continue;
     }
 
-    // Check all known interactions
-    for (const interaction of interactions) {
-      const drugANormalized = normalizeDrugName(interaction.drug_a);
-      const drugBNormalized = normalizeDrugName(interaction.drug_b);
+    // Get all candidate interactions to check
+    const candidatesToCheck = [
+      ...newDrugCandidates,
+      ...(currentMedCandidates.get(currentMed.name) || []),
+    ];
+
+    // Remove duplicates by interaction_id
+    const uniqueCandidates = new Map<number, DrugInteraction>();
+    for (const c of candidatesToCheck) {
+      uniqueCandidates.set(c.interaction_id, c);
+    }
+
+    for (const interaction of uniqueCandidates.values()) {
+      // Create a unique key for this pair to avoid duplicate checks
+      const pairKey = `${normalizedNewDrug}|${normalizedCurrentDrug}|${interaction.interaction_id}`;
+      if (checkedPairs.has(pairKey)) continue;
+      checkedPairs.add(pairKey);
 
       // Check if the new medicine and current medication match the interaction pair
       const newMatchesA = drugNamesMatch(newMedicineName, interaction.drug_a);
@@ -310,4 +428,11 @@ export function getSeverityIcon(severity: InteractionSeverity): string {
     case "Minor":
       return "Info";
   }
+}
+
+/**
+ * Preload interactions index (call early in app lifecycle)
+ */
+export async function preloadInteractionsIndex(): Promise<void> {
+  await ensureIndexReady();
 }

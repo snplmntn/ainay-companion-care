@@ -1,6 +1,6 @@
 // Drug Database Service
 // Uses the cleaned_drug_database.csv for medicine recognition and validation
-// Optimized with search index for fast lookups
+// OPTIMIZED: Synchronous index building with Promise-based ready state
 
 export interface Drug {
   regId: string;
@@ -8,15 +8,16 @@ export interface Drug {
   brandName: string;
   strength: string;
   form: string;
-  classification: string;
   category: string;
-  expiryDate: string;
 }
 
 // Optimized data structures
 let drugsCache: Drug[] | null = null;
 let searchIndex: Map<string, Set<number>> | null = null; // word -> drug indices
 let loadingPromise: Promise<Drug[]> | null = null;
+// OPTIMIZATION: Promise to track when index is ready
+let indexReadyPromise: Promise<void> | null = null;
+let indexReadyResolve: (() => void) | null = null;
 
 /**
  * Build search index for fast lookups
@@ -62,6 +63,11 @@ export async function loadDrugDatabase(): Promise<Drug[]> {
     return loadingPromise;
   }
 
+  // Create index ready promise before loading
+  indexReadyPromise = new Promise((resolve) => {
+    indexReadyResolve = resolve;
+  });
+
   loadingPromise = (async () => {
     try {
       const response = await fetch("/cleaned_drug_database.csv");
@@ -78,36 +84,64 @@ export async function loadDrugDatabase(): Promise<Drug[]> {
         // Parse CSV line (handle quoted fields with commas)
         const fields = parseCSVLine(line);
 
-        if (fields.length >= 8) {
+        // CSV columns: Reg_ID, Generic_Name, Brand_Name, Strength, Form, Category
+        if (fields.length >= 6) {
           drugs.push({
             regId: fields[0] || "",
             genericName: fields[1] || "",
             brandName: fields[2] || "",
             strength: fields[3] || "",
             form: fields[4] || "",
-            classification: fields[5] || "",
-            category: fields[6] || "",
-            expiryDate: fields[7] || "",
+            category: fields[5] || "",
           });
         }
       }
 
       drugsCache = drugs;
 
-      // Build search index in background
-      setTimeout(() => {
-        searchIndex = buildSearchIndex(drugs);
-        console.log(`✅ Drug database indexed: ${drugs.length} drugs`);
-      }, 100);
+      // OPTIMIZATION: Build index synchronously before returning
+      // This ensures index is always ready when data is available
+      searchIndex = buildSearchIndex(drugs);
+      console.log(`✅ Drug database indexed: ${drugs.length} drugs`);
+
+      // Signal that index is ready
+      if (indexReadyResolve) {
+        indexReadyResolve();
+      }
 
       return drugs;
     } catch (error) {
       console.error("Failed to load drug database:", error);
+      // Signal ready even on error to prevent deadlock
+      if (indexReadyResolve) {
+        indexReadyResolve();
+      }
       return [];
     }
   })();
 
   return loadingPromise;
+}
+
+/**
+ * Wait for the search index to be ready
+ * OPTIMIZATION: Use this before searches if you want guaranteed indexed results
+ */
+export async function waitForIndex(): Promise<void> {
+  if (searchIndex) return;
+  if (!indexReadyPromise) {
+    // Start loading if not started
+    await loadDrugDatabase();
+    return;
+  }
+  await indexReadyPromise;
+}
+
+/**
+ * Check if the index is ready (non-blocking)
+ */
+export function isIndexReady(): boolean {
+  return searchIndex !== null;
 }
 
 /**
@@ -147,6 +181,12 @@ export async function searchDrugs(
 
   if (!lowerQuery || lowerQuery.length < 2) return [];
 
+  // OPTIMIZATION: Wait for index if searching immediately after load
+  // This is non-blocking if index is already ready
+  if (!searchIndex) {
+    await waitForIndex();
+  }
+
   // Use index if available for fast lookup
   let candidateIndices: Set<number>;
 
@@ -168,7 +208,7 @@ export async function searchDrugs(
     // If no results from index, return empty (faster than full scan)
     if (candidateIndices.size === 0) return [];
   } else {
-    // Fallback: check all drugs (first load before index is built)
+    // Fallback: check all drugs (should rarely happen now)
     candidateIndices = new Set(drugs.map((_, i) => i));
   }
 
@@ -284,9 +324,7 @@ export async function getDrugContext(drugNames: string[]): Promise<string> {
     const drug = await findDrug(name);
     if (drug) {
       drugInfos.push(
-        `- ${drug.brandName} (${drug.genericName}): ${drug.strength} ${
-          drug.form
-        }, Category: ${drug.category || drug.classification}`
+        `- ${drug.brandName} (${drug.genericName}): ${drug.strength} ${drug.form}, Category: ${drug.category}`
       );
     }
   }

@@ -9,15 +9,9 @@ import type {
 } from "../types";
 import { generateId } from "./scheduleService";
 
-const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
-
-function getApiKey(): string {
-  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing OpenAI API key. Set VITE_OPENAI_API_KEY in your .env file.");
-  }
-  return apiKey;
-}
+// Use backend proxy instead of direct OpenAI calls (avoids CORS + keeps API key secure)
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
+const OPENAI_CHAT_PROXY = `${API_BASE_URL}/api/openai/chat`;
 
 function getModel(): string {
   return import.meta.env.VITE_OPENAI_MODEL || "gpt-4o";
@@ -130,18 +124,15 @@ function parseCategory(cat: string): MedicationCategory {
 }
 
 /**
- * Extract enhanced medicine data from text (voice transcription)
+ * Extract enhanced medicine data from text (voice transcription) via backend proxy
  */
 export async function extractEnhancedMedicinesFromText(
   text: string
 ): Promise<ExtractedMedicineData[]> {
-  const apiKey = getApiKey();
-
-  const response = await fetch(OPENAI_API_URL, {
+  const response = await fetch(OPENAI_CHAT_PROXY, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: getModel(),
@@ -157,7 +148,7 @@ export async function extractEnhancedMedicinesFromText(
   const data = await response.json();
 
   if (!response.ok) {
-    const apiError = data?.error?.message ?? response.statusText;
+    const apiError = data?.error ?? response.statusText;
     throw new Error(`OpenAI request failed: ${apiError}`);
   }
 
@@ -190,13 +181,11 @@ export async function extractEnhancedMedicinesFromText(
 }
 
 /**
- * Extract enhanced medicine data from images (prescription scan)
+ * Extract enhanced medicine data from images (prescription scan) via backend proxy
  */
 export async function extractEnhancedMedicinesFromImages(
   imageDataUrls: string[]
 ): Promise<ExtractedMedicineData[]> {
-  const apiKey = getApiKey();
-
   const content: OpenAIMessageContent[] = [
     {
       type: "text",
@@ -208,11 +197,10 @@ export async function extractEnhancedMedicinesFromImages(
     })),
   ];
 
-  const response = await fetch(OPENAI_API_URL, {
+  const response = await fetch(OPENAI_CHAT_PROXY, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: getModel(),
@@ -225,7 +213,7 @@ export async function extractEnhancedMedicinesFromImages(
   const data = await response.json();
 
   if (!response.ok) {
-    const apiError = data?.error?.message ?? response.statusText;
+    const apiError = data?.error ?? response.statusText;
     throw new Error(`OpenAI request failed: ${apiError}`);
   }
 

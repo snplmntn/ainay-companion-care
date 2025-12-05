@@ -12,7 +12,10 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
+  MessageCircle,
+  Camera,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import type { LinkedPatient, Medication } from "@/types";
 import { CATEGORY_LABELS, CATEGORY_COLORS, FREQUENCY_LABELS } from "@/types";
@@ -27,6 +30,7 @@ interface Props {
 }
 
 export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
+  const navigate = useNavigate();
   const [showAddModal, setShowAddModal] = useState(false);
   
   // Use realtime sync for this patient's medications
@@ -116,6 +120,16 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
             title="Refresh medications"
           >
             <RefreshCw className={`w-5 h-5 ${isSyncing ? "animate-spin" : ""}`} />
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => navigate(`/companion/patient/${patient.id}/ask`)}
+            className="gap-1"
+            title="Use AI to scan & add medicines"
+          >
+            <Camera className="w-4 h-4" />
+            <MessageCircle className="w-4 h-4" />
           </Button>
           <Button
             variant="coral"
@@ -322,6 +336,7 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
         patient={patient}
+        patientMedications={medications}
         onMedicationAdded={refresh}
       />
     </div>

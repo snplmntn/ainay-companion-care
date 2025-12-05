@@ -3,11 +3,7 @@ import {
   ArrowLeft,
   User,
   Bell,
-  HelpCircle,
   LogOut,
-  Heart,
-  Shield,
-  Globe,
   Link as LinkIcon,
   Copy,
   Users,
@@ -15,6 +11,8 @@ import {
   X,
   UserPlus,
   CreditCard,
+  Mail,
+  Clock,
 } from "lucide-react";
 // Note: UserPlus kept for "Link to Patient" button
 import { useNavigate } from "react-router-dom";
@@ -27,6 +25,14 @@ import {
   SubscriptionCard,
   SubscriptionBadge,
 } from "@/modules/subscription/components/SubscriptionCard";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export default function Profile() {
   const navigate = useNavigate();
@@ -41,12 +47,32 @@ export default function Profile() {
     linkedPatients,
     requestLinkToPatient,
     unlinkPatientOrCompanion,
+    updateNotificationSettings,
   } = useApp();
 
   const [showLinkCodeModal, setShowLinkCodeModal] = useState(false);
   const [showAddPatientModal, setShowAddPatientModal] = useState(false);
+  const [showNotificationSettings, setShowNotificationSettings] =
+    useState(false);
   const [linkCodeInput, setLinkCodeInput] = useState("");
   const [isLinking, setIsLinking] = useState(false);
+  const [isSavingNotifications, setIsSavingNotifications] = useState(false);
+
+  // Notification settings state
+  const [emailReminderEnabled, setEmailReminderEnabled] = useState(
+    profile?.email_reminder_enabled ?? true
+  );
+  const [emailReminderMinutes, setEmailReminderMinutes] = useState(
+    String(profile?.email_reminder_minutes ?? 5)
+  );
+
+  // Sync with profile when it changes
+  React.useEffect(() => {
+    if (profile) {
+      setEmailReminderEnabled(profile.email_reminder_enabled ?? true);
+      setEmailReminderMinutes(String(profile.email_reminder_minutes ?? 5));
+    }
+  }, [profile]);
 
   const handleLogout = async () => {
     await signOut();
@@ -96,8 +122,10 @@ export default function Profile() {
       setShowAddPatientModal(false);
     } else {
       // Check if it's an "already linked" message (not a real error)
-      const isAlreadyLinked = result.error?.toLowerCase().includes("already linked");
-      
+      const isAlreadyLinked = result.error
+        ?.toLowerCase()
+        .includes("already linked");
+
       if (isAlreadyLinked && result.patientName) {
         toast({
           title: "Already connected",
@@ -108,7 +136,8 @@ export default function Profile() {
       } else {
         toast({
           title: "Unable to link",
-          description: result.error || "Could not link to patient. Please try again.",
+          description:
+            result.error || "Could not link to patient. Please try again.",
           variant: "destructive",
         });
       }
@@ -130,11 +159,35 @@ export default function Profile() {
       label: "Subscription & Billing",
       action: () => navigate("/subscription/pricing"),
     },
-    { icon: Bell, label: "Notifications", action: () => {} },
-    { icon: Globe, label: "Language", action: () => {} },
-    { icon: Shield, label: "Privacy", action: () => {} },
-    { icon: HelpCircle, label: "Help & Support", action: () => {} },
+    {
+      icon: Bell,
+      label: "Notifications",
+      action: () => setShowNotificationSettings(true),
+    },
   ];
+
+  const handleSaveNotificationSettings = async () => {
+    setIsSavingNotifications(true);
+    const { error } = await updateNotificationSettings({
+      email_reminder_enabled: emailReminderEnabled,
+      email_reminder_minutes: parseInt(emailReminderMinutes),
+    });
+    setIsSavingNotifications(false);
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save notification settings. Please try again.",
+        variant: "destructive",
+      });
+    } else {
+      toast({
+        title: "Settings saved",
+        description: "Your notification preferences have been updated.",
+      });
+      setShowNotificationSettings(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -173,39 +226,6 @@ export default function Profile() {
       <main className="p-4 space-y-4 -mt-4">
         {/* Subscription Card */}
         <SubscriptionCard />
-
-        {/* Stats Card */}
-        <div className="card-senior">
-          <div className="flex items-center gap-3 mb-4">
-            <Heart className="w-6 h-6 text-primary" />
-            <h3 className="text-senior-lg font-semibold">Health Stats</h3>
-          </div>
-          <div className="grid grid-cols-3 gap-4 text-center">
-            <div>
-              <p className="text-senior-xl font-bold text-primary">7</p>
-              <p className="text-sm text-muted-foreground">Day Streak</p>
-            </div>
-            <div>
-              <p className="text-senior-xl font-bold text-secondary">
-                {medications.length > 0
-                  ? Math.round(
-                      (medications.filter((m) => m.taken).length /
-                        medications.length) *
-                        100
-                    )
-                  : 0}
-                %
-              </p>
-              <p className="text-sm text-muted-foreground">Adherence</p>
-            </div>
-            <div>
-              <p className="text-senior-xl font-bold text-primary">
-                {medications.length}
-              </p>
-              <p className="text-sm text-muted-foreground">Active Meds</p>
-            </div>
-          </div>
-        </div>
 
         {/* Link Code Card (for Patients) */}
         {(userRole === "patient" || !userRole) && linkCode && (
@@ -404,6 +424,99 @@ export default function Profile() {
                 disabled={isLinking || linkCodeInput.length < 6}
               >
                 {isLinking ? "Linking..." : "Link Now"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notification Settings Modal */}
+      {showNotificationSettings && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-background rounded-2xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-senior-xl font-bold">
+                Notification Settings
+              </h2>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowNotificationSettings(false)}
+              >
+                <X className="w-6 h-6" />
+              </Button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Email Reminders Toggle */}
+              <div className="flex items-center justify-between p-4 bg-muted rounded-xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-teal/20 rounded-full flex items-center justify-center">
+                    <Mail className="w-5 h-5 text-teal" />
+                  </div>
+                  <div>
+                    <p className="font-semibold">Email Reminders</p>
+                    <p className="text-sm text-muted-foreground">
+                      Receive email before medication time
+                    </p>
+                  </div>
+                </div>
+                <Switch
+                  checked={emailReminderEnabled}
+                  onCheckedChange={setEmailReminderEnabled}
+                />
+              </div>
+
+              {/* Reminder Time Selection */}
+              {emailReminderEnabled && (
+                <div className="p-4 bg-muted rounded-xl">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center">
+                      <Clock className="w-5 h-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="font-semibold">Reminder Time</p>
+                      <p className="text-sm text-muted-foreground">
+                        How early to receive the reminder
+                      </p>
+                    </div>
+                  </div>
+                  <Select
+                    value={emailReminderMinutes}
+                    onValueChange={setEmailReminderMinutes}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select time" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5 minutes before</SelectItem>
+                      <SelectItem value="10">10 minutes before</SelectItem>
+                      <SelectItem value="15">15 minutes before</SelectItem>
+                      <SelectItem value="30">30 minutes before</SelectItem>
+                      <SelectItem value="60">1 hour before</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <Button
+                variant="secondary"
+                size="lg"
+                className="flex-1"
+                onClick={() => setShowNotificationSettings(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="coral"
+                size="lg"
+                className="flex-1"
+                onClick={handleSaveNotificationSettings}
+                disabled={isSavingNotifications}
+              >
+                {isSavingNotifications ? "Saving..." : "Save Settings"}
               </Button>
             </div>
           </div>

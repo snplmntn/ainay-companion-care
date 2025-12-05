@@ -133,36 +133,13 @@ export default function Pricing() {
 
       {/* Content */}
       <main className="p-4 space-y-6 -mt-4">
-        {/* Server Status Alert */}
-        {serverAvailable === null ? (
-          <Alert className="bg-muted border-muted-foreground/20">
-            <Server className="h-4 w-4 animate-pulse" />
-            <AlertDescription>
-              Checking payment server status...
-            </AlertDescription>
-          </Alert>
-        ) : serverAvailable ? (
-          <Alert className="bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
-            <Server className="h-4 w-4 text-amber-600" />
-            <AlertDescription className="text-amber-800 dark:text-amber-200">
-              <strong>🧪 Test Mode:</strong> Payment server connected. Real
-              PayRex checkout available.
-              <br />
-              <span className="text-xs">
-                Test card: 4242424242424242 | Any future date | Any CVC
-              </span>
-            </AlertDescription>
-          </Alert>
-        ) : (
+        {/* Server Status Alert - only show if server unavailable */}
+        {serverAvailable === false && (
           <Alert className="bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800">
             <Sparkles className="h-4 w-4 text-emerald-600" />
             <AlertDescription className="text-emerald-800 dark:text-emerald-200">
               <strong>🚀 Demo Mode:</strong> Click "Upgrade to Pro" to instantly
               unlock all features!
-              <br />
-              <span className="text-xs">
-                No payment server running. Start it with: cd server && npm start
-              </span>
             </AlertDescription>
           </Alert>
         )}

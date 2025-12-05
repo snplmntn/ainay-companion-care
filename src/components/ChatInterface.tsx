@@ -7,7 +7,6 @@ import {
   Bot,
   User,
   Camera,
-  Image,
   X,
   Pill,
   Plus,
@@ -19,6 +18,7 @@ import {
   Volume2,
   VolumeX,
   Languages,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChatMessage } from "@/types";
+import { ChatMessage, LinkedPatient, Medication, FrequencyType } from "@/types";
 import {
   chatCompletion,
   analyzeMedicineImages,
@@ -56,9 +56,11 @@ import {
 } from "@/services/textToSpeech";
 import { CameraScanner } from "./CameraScanner";
 import { useApp } from "@/contexts/AppContext";
+import type { LinkedPatientContext } from "@/services/openai";
 import { toast } from "@/hooks/use-toast";
 import { useSubscription, LockedBadge } from "@/modules/subscription";
 import { useNavigate } from "react-router-dom";
+import { addMedicationForPatient } from "@/modules/companion/services/companionMedication";
 
 interface MedicineInput {
   id: string;
@@ -74,12 +76,194 @@ interface DetectedMedicine extends ExtractedMedicine {
   selected: boolean;
 }
 
+// Props for companion mode - when managing a patient's medications
+interface ChatInterfaceProps {
+  // Optional patient context for companions adding medicines for their patients
+  targetPatient?: LinkedPatient;
+  // Callback when medications are updated (for realtime sync)
+  onMedicationsUpdated?: () => void;
+}
+
 const generateId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+// Map extracted frequency string to FrequencyType
+const mapFrequency = (extractedFreq?: string): FrequencyType => {
+  const frequencyMap: Record<string, FrequencyType> = {
+    once_daily: "once_daily",
+    twice_daily: "twice_daily",
+    three_times_daily: "three_times_daily",
+    four_times_daily: "four_times_daily",
+    as_needed: "as_needed",
+  };
+  return frequencyMap[extractedFreq || ""] || "once_daily";
+};
+
+// Get current time in 12-hour format (e.g., "10:30 AM")
+const getCurrentTime12h = (): string => {
+  const now = new Date();
+  let hours = now.getHours();
+  const minutes = now.getMinutes();
+  const period = hours >= 12 ? "PM" : "AM";
+
+  if (hours === 0) hours = 12;
+  else if (hours > 12) hours -= 12;
+
+  const roundedMinutes = Math.round(minutes / 5) * 5;
+  const finalMinutes = roundedMinutes >= 60 ? 0 : roundedMinutes;
+
+  return `${hours}:${finalMinutes.toString().padStart(2, "0")} ${period}`;
+};
+
+// Normalize medicine name for comparison (case-insensitive, trimmed)
+const normalizeMedicineName = (name: string): string => {
+  return name.toLowerCase().trim().replace(/\s+/g, " ");
+};
+
+// Check if a medicine name is a duplicate
+const isMedicineDuplicate = (
+  name: string,
+  existingNames: string[]
+): { isDuplicate: boolean; matchedName?: string } => {
+  const normalizedName = normalizeMedicineName(name);
+
+  for (const existing of existingNames) {
+    const normalizedExisting = normalizeMedicineName(existing);
+
+    // Exact match
+    if (normalizedName === normalizedExisting) {
+      return { isDuplicate: true, matchedName: existing };
+    }
+
+    // Check if one contains the other
+    if (
+      normalizedName.includes(normalizedExisting) ||
+      normalizedExisting.includes(normalizedName)
+    ) {
+      return { isDuplicate: true, matchedName: existing };
+    }
+
+    // Prefix match for longer names
+    const minLen = Math.min(normalizedName.length, normalizedExisting.length);
+    if (minLen >= 4) {
+      const shorterName = normalizedName.slice(0, minLen);
+      const shorterExisting = normalizedExisting.slice(0, minLen);
+      if (shorterName === shorterExisting) {
+        return { isDuplicate: true, matchedName: existing };
+      }
+    }
+  }
+
+  return { isDuplicate: false };
+};
 
 function buildInitialMessage(
   userName?: string,
-  medications?: Array<{ name: string; taken: boolean; time: string }>
+  medications?: Array<{ name: string; taken: boolean; time: string }>,
+  targetPatient?: LinkedPatient,
+  linkedPatients?: LinkedPatient[],
+  userRole?: string
 ): ChatMessage {
+  // Companion mode - managing specific patient's medications
+  if (targetPatient) {
+    const patientMeds = targetPatient.medications || [];
+    const pending = patientMeds.filter((m) => !m.taken);
+    const taken = patientMeds.filter((m) => m.taken);
+
+    let medicationInfo = "";
+    if (patientMeds.length > 0) {
+      if (pending.length > 0) {
+        const pendingList = pending
+          .slice(0, 3)
+          .map((m) => `**${m.name}** at ${m.time}`)
+          .join(", ");
+        const moreCount =
+          pending.length > 3 ? ` and ${pending.length - 3} more` : "";
+        medicationInfo = `\n\n💊 **${targetPatient.name}'s pending medications:** ${pendingList}${moreCount}`;
+      }
+      if (taken.length > 0 && pending.length === 0) {
+        medicationInfo = `\n\n✅ **Great!** ${
+          targetPatient.name
+        } has taken all ${taken.length} medication${
+          taken.length > 1 ? "s" : ""
+        } today!`;
+      } else if (taken.length > 0) {
+        medicationInfo += `\n✅ ${taken.length} medication${
+          taken.length > 1 ? "s" : ""
+        } already taken.`;
+      }
+    } else {
+      medicationInfo = `\n\n📝 **Tip:** Add medications for ${targetPatient.name} using camera, voice, or by typing!`;
+    }
+
+    return {
+      id: "1",
+      role: "assistant",
+      content: `Hello${
+        userName ? `, ${userName}` : ""
+      }! I'm AInay. You're managing **${targetPatient.name}'s** medications.
+
+- 📷 **Scan medicines** with your camera
+- 🖼️ **Upload photos** of prescriptions
+- 📎 **Attach files** (images or documents)
+- 🎤 **Ask by voice** about medicines
+- ⌨️ **Type questions** about ${targetPatient.name}'s health
+
+Medicines you add here will appear in ${
+        targetPatient.name
+      }'s schedule!${medicationInfo}`,
+      timestamp: new Date(),
+    };
+  }
+
+  // Companion mode - general view (not specific patient)
+  if (userRole === "companion" && linkedPatients && linkedPatients.length > 0) {
+    const activePatients = linkedPatients.filter(
+      (p) => p.linkStatus === "accepted"
+    );
+
+    let patientSummary = "";
+    if (activePatients.length > 0) {
+      const patientsList = activePatients
+        .map((p) => {
+          const pendingCount = p.medications.filter((m) => !m.taken).length;
+          const status =
+            pendingCount > 0 ? `⚠️ ${pendingCount} pending` : "✅ all done";
+          return `**${p.name}** (${status})`;
+        })
+        .join("\n- ");
+
+      patientSummary = `\n\n👥 **Your patients:**\n- ${patientsList}`;
+
+      // Highlight patients needing attention
+      const needsAttention = activePatients.filter(
+        (p) => p.adherenceRate < 70 || p.medications.some((m) => !m.taken)
+      );
+      if (needsAttention.length > 0) {
+        patientSummary += `\n\n⚠️ **Needs attention:** ${needsAttention
+          .map((p) => p.name)
+          .join(", ")}`;
+      }
+    }
+
+    return {
+      id: "1",
+      role: "assistant",
+      content: `Hello${
+        userName ? `, ${userName}` : ""
+      }! I'm AInay, your caregiving assistant.
+
+I know about all your linked patients and their medications. You can:
+
+- 💬 **Ask about any patient** by name (e.g., "How is Maria doing?")
+- 📊 **Check adherence** (e.g., "Who has pending medications?")
+- 💊 **Get medication info** (e.g., "What medications does Juan take?")
+- 🔍 **Scan medicines** for any patient
+- ❓ **Ask health questions** about your patients${patientSummary}`,
+      timestamp: new Date(),
+    };
+  }
+
+  // Patient mode - managing own medications
   let greeting = "Hello";
   if (userName) {
     greeting = `Hello, ${userName}`;
@@ -130,10 +314,23 @@ I can identify multiple medicines at once and help you add them to your list!${m
   };
 }
 
-export function ChatInterface() {
-  const { addMedication, medications, userName } = useApp();
+export function ChatInterface({
+  targetPatient,
+  onMedicationsUpdated,
+}: ChatInterfaceProps = {}) {
+  const {
+    addMedication,
+    medications,
+    userName,
+    user,
+    userRole,
+    linkedPatients,
+  } = useApp();
   const navigate = useNavigate();
   const { hasFeature, isFree } = useSubscription();
+
+  // Determine if we're in companion mode (adding meds for a patient)
+  const isCompanionMode = !!targetPatient;
 
   // Feature access checks
   const canUsePrescriptionScan = hasFeature("prescription_scan");
@@ -166,10 +363,31 @@ export function ChatInterface() {
     });
   };
 
-  // Build user context for AI calls (includes language)
+  // Build linked patients context for companions
+  const linkedPatientsContext: LinkedPatientContext[] | undefined =
+    userRole === "companion" && linkedPatients && linkedPatients.length > 0
+      ? linkedPatients
+          .filter((p) => p.linkStatus === "accepted")
+          .map((p) => ({
+            id: p.id,
+            name: p.name,
+            email: p.email,
+            adherenceRate: p.adherenceRate,
+            medications: p.medications.map((med) => ({
+              name: med.name,
+              dosage: med.dosage,
+              time: med.time,
+              taken: med.taken,
+              instructions: med.instructions,
+            })),
+          }))
+      : undefined;
+
+  // Build user context for AI calls (includes language and patient info for companions)
   const userContext: UserContext = {
     userName: userName || undefined,
     language,
+    userRole: userRole as "patient" | "companion" | undefined,
     medications: medications.map((med) => ({
       name: med.name,
       dosage: med.dosage,
@@ -177,6 +395,7 @@ export function ChatInterface() {
       taken: med.taken,
       instructions: med.instructions,
     })),
+    linkedPatients: linkedPatientsContext,
   };
 
   // Handle language change
@@ -191,7 +410,13 @@ export function ChatInterface() {
 
   // Create dynamic initial message based on user context
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
-    buildInitialMessage(userName, medications),
+    buildInitialMessage(
+      userName,
+      isCompanionMode ? undefined : medications,
+      targetPatient,
+      linkedPatients,
+      userRole
+    ),
   ]);
 
   // Update initial message when medications or username changes (only if no other messages exist)
@@ -199,11 +424,26 @@ export function ChatInterface() {
     setMessages((prev) => {
       // Only update if we only have the initial message
       if (prev.length === 1 && prev[0].id === "1") {
-        return [buildInitialMessage(userName, medications)];
+        return [
+          buildInitialMessage(
+            userName,
+            isCompanionMode ? undefined : medications,
+            targetPatient,
+            linkedPatients,
+            userRole
+          ),
+        ];
       }
       return prev;
     });
-  }, [userName, medications]);
+  }, [
+    userName,
+    medications,
+    isCompanionMode,
+    targetPatient,
+    linkedPatients,
+    userRole,
+  ]);
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
@@ -218,7 +458,6 @@ export function ChatInterface() {
   const [showAddPanel, setShowAddPanel] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -262,32 +501,6 @@ export function ChatInterface() {
       imageUrl: imageDataUrl,
     };
     setMedicineInputs((prev) => [...prev, newInput]);
-  };
-
-  // Handle gallery selection
-  const handleGallerySelect = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) return;
-
-    try {
-      const newInputs = await Promise.all(
-        Array.from(files).map(async (file) => {
-          const imageUrl = await fileToDataUrl(file);
-          return {
-            id: generateId(),
-            type: "gallery" as const,
-            imageUrl,
-          };
-        })
-      );
-      setMedicineInputs((prev) => [...prev, ...newInputs]);
-    } catch (error) {
-      console.error("Failed to process images:", error);
-    }
-
-    event.target.value = "";
   };
 
   // Handle file upload (images + documents like prescriptions)
@@ -509,13 +722,8 @@ export function ChatInterface() {
           try {
             const transcribedText = await transcribeAudio(audioBlob);
             if (transcribedText) {
-              // If we have pending images, send with them
-              if (medicineInputs.some((m) => m.imageUrl)) {
-                await sendMessage(transcribedText);
-              } else {
-                // Just set the input for review
-                setInput(transcribedText);
-              }
+              // Send instantly without waiting for user confirmation
+              await sendMessage(transcribedText);
             }
           } catch (error) {
             console.error("Transcription failed:", error);
@@ -610,7 +818,7 @@ export function ChatInterface() {
     );
   };
 
-  const addSelectedMedicines = () => {
+  const addSelectedMedicines = async () => {
     const selected = detectedMedicines.filter((m) => m.selected && m.name);
 
     if (selected.length === 0) {
@@ -634,27 +842,139 @@ export function ChatInterface() {
       return;
     }
 
-    selected.forEach((medicine) => {
-      addMedication({
-        name: medicine.name,
-        dosage: medicine.dosage,
-        time: medicine.time,
-        instructions: medicine.instructions,
-        category: "medicine",
-        frequency: "once_daily",
-        timePeriod: "ongoing",
-        startTime: medicine.time,
-        nextDayMode: "restart",
-        isActive: true,
-      });
-    });
+    // Check for duplicates
+    const existingMedNames =
+      isCompanionMode && targetPatient
+        ? (targetPatient.medications || []).map((m) => m.name)
+        : medications.map((m) => m.name);
 
-    toast({
-      title: `${selected.length} medicine${
-        selected.length > 1 ? "s" : ""
-      } added!`,
-      description: selected.map((m) => m.name).join(", "),
-    });
+    const uniqueMedicines: typeof selected = [];
+    const duplicates: string[] = [];
+
+    for (const medicine of selected) {
+      const { isDuplicate, matchedName } = isMedicineDuplicate(
+        medicine.name,
+        existingMedNames
+      );
+      if (isDuplicate) {
+        duplicates.push(matchedName || medicine.name);
+      } else {
+        uniqueMedicines.push(medicine);
+        existingMedNames.push(medicine.name); // Prevent duplicates within selection
+      }
+    }
+
+    if (duplicates.length > 0 && uniqueMedicines.length === 0) {
+      toast({
+        title: "Already in the list",
+        description:
+          duplicates.length === 1
+            ? `${duplicates[0]} is already added`
+            : "These medicines are already added",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Companion mode - add medicines for the patient
+    if (isCompanionMode && targetPatient && user?.id) {
+      let successCount = 0;
+      let errorCount = 0;
+      const defaultTime = getCurrentTime12h();
+
+      for (const medicine of uniqueMedicines) {
+        try {
+          const medicineTime =
+            medicine.time && medicine.time.trim() !== ""
+              ? medicine.time
+              : defaultTime;
+          const { error } = await addMedicationForPatient(
+            targetPatient.id,
+            user.id,
+            {
+              name: medicine.name,
+              dosage: medicine.dosage,
+              time: medicineTime,
+              instructions: medicine.instructions,
+              category: "medicine",
+              frequency: mapFrequency(medicine.frequency),
+              timePeriod: "ongoing",
+              startTime: medicineTime,
+              nextDayMode: "restart",
+              isActive: true,
+            }
+          );
+
+          if (error) {
+            console.error(`Failed to add ${medicine.name}:`, error);
+            errorCount++;
+          } else {
+            successCount++;
+          }
+        } catch (err) {
+          console.error(`Failed to add ${medicine.name}:`, err);
+          errorCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        const dupeMsg =
+          duplicates.length > 0
+            ? ` (${duplicates.length} already in list)`
+            : "";
+        toast({
+          title: `${successCount} medicine${
+            successCount > 1 ? "s" : ""
+          } added for ${targetPatient.name}!${dupeMsg}`,
+          description: uniqueMedicines
+            .slice(0, successCount)
+            .map((m) => m.name)
+            .join(", "),
+        });
+        // Notify parent to refresh medications
+        onMedicationsUpdated?.();
+      }
+
+      if (errorCount > 0) {
+        toast({
+          title: `${errorCount} medicine${
+            errorCount > 1 ? "s" : ""
+          } failed to add`,
+          description: "Please try again.",
+          variant: "destructive",
+        });
+      }
+    } else {
+      // Patient mode - add medicines for self
+      const defaultTime = getCurrentTime12h();
+      uniqueMedicines.forEach((medicine) => {
+        const medicineTime =
+          medicine.time && medicine.time.trim() !== ""
+            ? medicine.time
+            : defaultTime;
+        addMedication({
+          name: medicine.name,
+          dosage: medicine.dosage,
+          time: medicineTime,
+          instructions: medicine.instructions,
+          category: "medicine",
+          frequency: mapFrequency(medicine.frequency),
+          timePeriod: "ongoing",
+          startTime: medicineTime,
+          nextDayMode: "restart",
+          isActive: true,
+        });
+      });
+
+      const dupeMsg =
+        duplicates.length > 0 ? ` (${duplicates.length} already in list)` : "";
+      toast({
+        title: `${uniqueMedicines.length} medicine${
+          uniqueMedicines.length > 1 ? "s" : ""
+        } added!${dupeMsg}`,
+        description: uniqueMedicines.map((m) => m.name).join(", "),
+      });
+    }
 
     setDetectedMedicines([]);
     setShowAddPanel(false);
@@ -707,17 +1027,7 @@ export function ChatInterface() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Hidden file input for gallery (images only) */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={handleGallerySelect}
-      />
-
-      {/* Hidden file input for documents (images + PDFs) */}
+      {/* Hidden file input for attachments (images + PDFs) */}
       <input
         ref={documentInputRef}
         type="file"
@@ -734,6 +1044,25 @@ export function ChatInterface() {
         onCapture={handleCameraCapture}
         capturedCount={medicineInputs.filter((m) => m.type === "camera").length}
       />
+
+      {/* Companion Mode Banner */}
+      {isCompanionMode && targetPatient && (
+        <div className="px-4 py-3 bg-gradient-to-r from-teal-500/20 to-teal-600/10 border-b border-teal-300/30">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center">
+              <Users className="w-5 h-5 text-teal-700" />
+            </div>
+            <div>
+              <p className="font-semibold text-teal-800">
+                Managing {targetPatient.name}'s Medications
+              </p>
+              <p className="text-xs text-teal-600">
+                Medicines added here will appear in their schedule
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Language & TTS Settings Header */}
       <div className="px-4 py-2 border-b border-border bg-muted/30 flex flex-wrap items-center justify-between gap-2">
@@ -1018,7 +1347,10 @@ export function ChatInterface() {
                 disabled={isExtractingMedicines}
               >
                 <Plus className="w-4 h-4 mr-1" />
-                Add {detectedMedicines.filter((m) => m.selected).length} to List
+                Add {detectedMedicines.filter((m) => m.selected).length}
+                {isCompanionMode && targetPatient
+                  ? ` for ${targetPatient.name.split(" ")[0]}`
+                  : " to List"}
               </Button>
             </div>
           </div>
@@ -1166,26 +1498,14 @@ export function ChatInterface() {
             {!canUsePrescriptionScan && <LockedBadge />}
           </div>
 
-          {/* Gallery button */}
-          <Button
-            variant="secondary"
-            size="icon-lg"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isTyping || isRecording}
-            className="rounded-full shrink-0"
-            title="Choose from gallery"
-          >
-            <Image className="w-6 h-6" />
-          </Button>
-
-          {/* File upload button */}
+          {/* Attachment button (photos & files) */}
           <Button
             variant="secondary"
             size="icon-lg"
             onClick={() => documentInputRef.current?.click()}
             disabled={isTyping || isRecording}
             className="rounded-full shrink-0"
-            title="Upload file (images or PDF)"
+            title="Attach photo or file"
           >
             <Paperclip className="w-6 h-6" />
           </Button>

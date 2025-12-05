@@ -3,4 +3,5 @@
 // ============================================
 
 export * from "./useRealtimePatientMedications";
+export * from "./usePushNotifications";
 

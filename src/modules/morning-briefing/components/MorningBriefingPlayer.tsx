@@ -2,7 +2,7 @@
 // Morning Briefing Player Component
 // ============================================
 
-import React from 'react';
+import React from "react";
 import {
   Play,
   Pause,
@@ -17,12 +17,12 @@ import {
   Cloud,
   CloudSun,
   RefreshCw,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { useApp } from '@/contexts/AppContext';
-import { useMorningBriefing } from '../hooks/useMorningBriefing';
-import { BRIEFING_CACHE_KEY } from '../constants';
-import type { WeatherData } from '../types';
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useApp } from "@/contexts/AppContext";
+import { useMorningBriefing } from "../hooks/useMorningBriefing";
+import { BRIEFING_CACHE_KEY } from "../constants";
+import type { WeatherData } from "../types";
 
 /**
  * Get greeting and icon based on time of day
@@ -30,12 +30,12 @@ import type { WeatherData } from '../types';
 function getTimeOfDayInfo() {
   const hour = new Date().getHours();
   if (hour < 12) {
-    return { greeting: 'Morning Briefing', Icon: Sunrise, theme: 'morning' };
+    return { greeting: "Morning Briefing", Icon: Sunrise, theme: "morning" };
   }
   if (hour < 17) {
-    return { greeting: 'Afternoon Briefing', Icon: Sun, theme: 'afternoon' };
+    return { greeting: "Afternoon Briefing", Icon: Sun, theme: "afternoon" };
   }
-  return { greeting: 'Evening Briefing', Icon: Moon, theme: 'evening' };
+  return { greeting: "Evening Briefing", Icon: Moon, theme: "evening" };
 }
 
 /**
@@ -44,13 +44,17 @@ function getTimeOfDayInfo() {
 function WeatherIcon({ condition }: { condition: string }) {
   const cond = condition.toLowerCase();
 
-  if (cond.includes('rain') || cond.includes('drizzle') || cond.includes('shower')) {
+  if (
+    cond.includes("rain") ||
+    cond.includes("drizzle") ||
+    cond.includes("shower")
+  ) {
     return <CloudRain className="w-5 h-5" />;
   }
-  if (cond.includes('cloud') || cond.includes('overcast')) {
+  if (cond.includes("cloud") || cond.includes("overcast")) {
     return <Cloud className="w-5 h-5" />;
   }
-  if (cond.includes('clear') || cond.includes('sun')) {
+  if (cond.includes("clear") || cond.includes("sun")) {
     return <Sun className="w-5 h-5" />;
   }
   return <CloudSun className="w-5 h-5" />;
@@ -71,7 +75,7 @@ export function MorningBriefingPlayer({
   onPlayComplete,
 }: MorningBriefingPlayerProps) {
   const { userName: contextUserName, medications } = useApp();
-  const userName = userNameOverride || contextUserName || 'Friend';
+  const userName = userNameOverride || contextUserName || "Friend";
 
   const {
     weather,
@@ -86,22 +90,42 @@ export function MorningBriefingPlayer({
   } = useMorningBriefing(userName, medications);
 
   const { greeting, Icon: TimeIcon } = getTimeOfDayInfo();
-  const isLoading = status === 'loading';
-  const isPlaying = status === 'playing';
-  const isPaused = status === 'paused';
-  const isReady = status === 'ready';
-  const hasError = status === 'error';
+  const isLoading = status === "loading";
+  const isPlaying = status === "playing";
+  const isPaused = status === "paused";
+  const isReady = status === "ready";
+  const hasError = status === "error";
 
-  // Auto-play when ready
+  // Refs to prevent double-triggering
+  const hasAutoPlayed = React.useRef(false);
+  const hasCalledComplete = React.useRef(false);
+
+  // Reset refs when status changes to idle (new briefing)
   React.useEffect(() => {
-    if (autoPlay && isReady && !isPlaying && progress === 0) {
+    if (status === "idle") {
+      hasAutoPlayed.current = false;
+      hasCalledComplete.current = false;
+    }
+  }, [status]);
+
+  // Auto-play when ready (only once)
+  React.useEffect(() => {
+    if (
+      autoPlay &&
+      isReady &&
+      !isPlaying &&
+      progress === 0 &&
+      !hasAutoPlayed.current
+    ) {
+      hasAutoPlayed.current = true;
       play();
     }
-  }, [autoPlay, isReady, isPlaying, progress, play]);
+  }, [autoPlay, isReady, isPlaying, progress]); // Removed 'play' from deps to prevent re-triggering
 
-  // Call onPlayComplete when finished
+  // Call onPlayComplete when finished (only once)
   React.useEffect(() => {
-    if (progress >= 100 && onPlayComplete) {
+    if (progress >= 100 && onPlayComplete && !hasCalledComplete.current) {
+      hasCalledComplete.current = true;
       onPlayComplete();
     }
   }, [progress, onPlayComplete]);
@@ -119,17 +143,17 @@ export function MorningBriefingPlayer({
   // Refresh briefing - clear cache and regenerate
   const handleRefresh = () => {
     localStorage.removeItem(BRIEFING_CACHE_KEY);
-    console.log('🗑️ Cache cleared, regenerating briefing...');
+    console.log("🗑️ Cache cleared, regenerating briefing...");
     generateBriefing();
   };
 
   const getStatusText = () => {
-    if (isLoading) return 'Preparing your briefing...';
-    if (isPlaying) return 'Playing...';
-    if (isPaused) return 'Paused';
-    if (hasError) return 'Tap to retry';
-    if (progress >= 100) return 'Tap to replay';
-    return 'Tap to listen';
+    if (isLoading) return "Preparing your briefing...";
+    if (isPlaying) return "Playing...";
+    if (isPaused) return "Paused";
+    if (hasError) return "Tap to retry";
+    if (progress >= 100) return "Tap to replay";
+    return "Tap to listen";
   };
 
   return (
@@ -145,7 +169,9 @@ export function MorningBriefingPlayer({
           {[...Array(4)].map((_, i) => (
             <div
               key={i}
-              className={`w-1 bg-white rounded-full ${isPlaying ? 'animate-bounce' : ''}`}
+              className={`w-1 bg-white rounded-full ${
+                isPlaying ? "animate-bounce" : ""
+              }`}
               style={{
                 height: `${12 + (i % 3) * 8}px`,
                 animationDelay: `${i * 0.1}s`,
@@ -176,10 +202,12 @@ export function MorningBriefingPlayer({
             {weather && (
               <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm rounded-full px-3 py-1.5">
                 <WeatherIcon condition={weather.condition} />
-                <span className="text-sm font-medium">{weather.temperature}°C</span>
+                <span className="text-sm font-medium">
+                  {weather.temperature}°C
+                </span>
               </div>
             )}
-            
+
             {/* Refresh button */}
             <Button
               variant="ghost"
@@ -189,7 +217,9 @@ export function MorningBriefingPlayer({
               className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full"
               title="Generate new briefing"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw
+                className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`}
+              />
             </Button>
           </div>
         </div>
@@ -199,15 +229,17 @@ export function MorningBriefingPlayer({
           {isLoading ? (
             <div className="flex items-center gap-2 text-white/80">
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm">Creating your personalized briefing...</span>
+              <span className="text-sm">
+                Creating your personalized briefing...
+              </span>
             </div>
           ) : hasError ? (
             <p className="text-sm text-white/80 leading-relaxed">
-              {error || 'Unable to load briefing. Tap to try again.'}
+              {error || "Unable to load briefing. Tap to try again."}
             </p>
           ) : (
             <p className="text-base leading-relaxed text-white/95">
-              {script?.text || 'Loading your daily briefing...'}
+              {script?.text || "Loading your daily briefing..."}
             </p>
           )}
         </div>
@@ -238,7 +270,9 @@ export function MorningBriefingPlayer({
               {/* Status text */}
               <div className="flex items-center gap-2 mb-2">
                 <Volume2 className="w-4 h-4 shrink-0" />
-                <span className="text-sm font-medium truncate">{getStatusText()}</span>
+                <span className="text-sm font-medium truncate">
+                  {getStatusText()}
+                </span>
               </div>
 
               {/* Progress bar */}
@@ -272,4 +306,3 @@ export function MorningBriefingPlayer({
 }
 
 export default MorningBriefingPlayer;
-

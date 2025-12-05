@@ -198,7 +198,9 @@ CREATE TABLE IF NOT EXISTS public.medications (
   image_url TEXT, -- Base64 or URL to medicine photo
   frequency TEXT NOT NULL DEFAULT 'once_daily' CHECK (frequency IN ('once_daily', 'twice_daily', 'three_times_daily', 'four_times_daily', 'every_other_day', 'weekly', 'as_needed', 'custom')),
   custom_frequency INTEGER, -- Custom interval in hours
-  time_period TEXT DEFAULT 'ongoing', -- e.g., "7 days", "30 days", "ongoing"
+  time_period TEXT DEFAULT 'ongoing', -- e.g., "7", "14", "30", "60", "90", "ongoing" (days or ongoing)
+  start_date DATE DEFAULT CURRENT_DATE, -- When the prescription starts
+  end_date DATE, -- When the prescription ends (NULL for ongoing)
   start_time TEXT DEFAULT '08:00 AM', -- First dose time
   next_day_mode TEXT DEFAULT 'restart' CHECK (next_day_mode IN ('restart', 'continue')),
   interval_minutes INTEGER, -- Computed interval between doses

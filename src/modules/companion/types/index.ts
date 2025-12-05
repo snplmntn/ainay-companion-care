@@ -38,4 +38,3 @@ export interface LinkRequest {
   companionEmail: string;
   createdAt: string;
 }
-

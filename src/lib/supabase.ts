@@ -45,6 +45,8 @@ export interface Database {
           frequency: string;
           custom_frequency: number | null;
           time_period: string;
+          start_date: string | null;
+          end_date: string | null;
           start_time: string;
           next_day_mode: string;
           interval_minutes: number | null;
@@ -66,6 +68,8 @@ export interface Database {
           frequency?: string;
           custom_frequency?: number | null;
           time_period?: string;
+          start_date?: string | null;
+          end_date?: string | null;
           start_time?: string;
           next_day_mode?: string;
           interval_minutes?: number | null;
@@ -87,6 +91,8 @@ export interface Database {
           frequency?: string;
           custom_frequency?: number | null;
           time_period?: string;
+          start_date?: string | null;
+          end_date?: string | null;
           start_time?: string;
           next_day_mode?: string;
           interval_minutes?: number | null;

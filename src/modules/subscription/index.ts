@@ -38,6 +38,7 @@ export {
   getPaymentStatus,
   isPaymentServerAvailable,
   expireSession,
+  lookupSessionByTxnRef,
 } from "./services/paymentApi";
 
 export {

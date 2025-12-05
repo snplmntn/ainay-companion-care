@@ -5,12 +5,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppProvider, useApp } from "@/contexts/AppContext";
 import { loadDrugDatabase } from "@/services/drugDatabase";
+import { FullScreenLoader } from "@/components/ui/loading-spinner";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import AskAInay from "./pages/AskAInay";
+import AskAInayForPatient from "./pages/AskAInayForPatient";
 import Timeline from "./pages/Timeline";
 import Profile from "./pages/Profile";
 import CompanionDashboard from "./pages/CompanionDashboard";
+import PatientManagement from "./pages/PatientManagement";
 import Pricing from "./pages/Pricing";
 import SubscriptionSuccess from "./pages/SubscriptionSuccess";
 import NotFound from "./pages/NotFound";
@@ -23,13 +26,10 @@ loadDrugDatabase().catch(console.error);
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { userRole, isAuthenticated, isLoading } = useApp();
 
-  // Show nothing while checking auth state
+  // Show loading spinner while checking auth state
+  // OPTIMIZATION: Using extracted LoadingSpinner component
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
   // Redirect to login if not authenticated (either via Supabase or demo mode)
@@ -44,12 +44,9 @@ function AppRoutes() {
   const { userRole, isAuthenticated, isLoading } = useApp();
 
   // Show loading spinner while checking auth
+  // OPTIMIZATION: Using extracted LoadingSpinner component
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <FullScreenLoader />;
   }
 
   // User is logged in if they have a role (demo mode) or are authenticated (Supabase)
@@ -98,6 +95,22 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <CompanionDashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/companion/patient/:patientId"
+        element={
+          <ProtectedRoute>
+            <PatientManagement />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/companion/patient/:patientId/ask"
+        element={
+          <ProtectedRoute>
+            <AskAInayForPatient />
           </ProtectedRoute>
         }
       />

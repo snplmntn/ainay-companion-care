@@ -9,6 +9,7 @@ import { Navigation } from "@/components/Navigation";
 import { useApp } from "@/contexts/AppContext";
 import { fetchWeather, type WeatherData } from "@/modules/morning-briefing";
 import { FeatureGate, useSubscription, FREE_TIER_MAX_MEDICATIONS } from "@/modules/subscription";
+import { RefillReminders } from "@/modules/medication";
 import { toast } from "@/hooks/use-toast";
 
 // Weather icon based on condition
@@ -142,24 +143,9 @@ export default function Dashboard() {
         >
           <MorningBriefing />
         </FeatureGate>
-
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="card-senior bg-coral-light">
-            <p className="text-senior-sm text-muted-foreground mb-1">
-              Today's Meds
-            </p>
-            <p className="text-senior-2xl text-primary">{medications.length}</p>
-          </div>
-          <div className="card-senior bg-teal-light">
-            <p className="text-senior-sm text-muted-foreground mb-1">
-              Completed
-            </p>
-            <p className="text-senior-2xl text-secondary">
-              {takenCount}/{medications.length}
-            </p>
-          </div>
-        </div>
+        
+        {/* Refill Reminders - Shows only if there are prescriptions ending soon */}
+        <RefillReminders compact />
 
         {/* Medication Timeline */}
         <MedicationTimeline />

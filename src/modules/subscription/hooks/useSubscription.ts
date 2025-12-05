@@ -168,8 +168,14 @@ export function useSubscription(): UseSubscriptionReturn {
     }
 
     const baseUrl = window.location.origin;
-    const successUrl = `${baseUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}`;
+    // Don't use placeholder - PayRex doesn't replace it
+    // We'll store the session ID in localStorage instead
+    const successUrl = `${baseUrl}/subscription/success`;
     const cancelUrl = `${baseUrl}/subscription/pricing`;
+
+    // Clear any old session ID before starting new checkout
+    localStorage.removeItem("payrex_session_id");
+    localStorage.removeItem("payrex_user_id");
 
     // Call backend API to create checkout
     const result = await createCheckout(user.id, successUrl, cancelUrl);
@@ -181,8 +187,17 @@ export function useSubscription(): UseSubscriptionReturn {
       };
     }
 
-    // Record pending payment
+    // Store session ID and txnRef in localStorage for verification after redirect
+    // This is a backup in case the URL params don't work
     if (result.sessionId) {
+      console.log("[Checkout] Storing session ID:", result.sessionId);
+      console.log("[Checkout] Transaction ref:", result.txnRef);
+      localStorage.setItem("payrex_session_id", result.sessionId);
+      localStorage.setItem("payrex_user_id", user.id);
+      if (result.txnRef) {
+        localStorage.setItem("payrex_txn_ref", result.txnRef);
+      }
+
       await recordPayment(
         user.id,
         subscription?.id ?? null,

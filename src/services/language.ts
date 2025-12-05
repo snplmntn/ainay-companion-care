@@ -115,7 +115,7 @@ IMPORTANT LANGUAGE GUIDELINES:
 - Keep medical terms in English for clarity, but explain them in ${config.name}
 - If a specific word doesn't exist in ${config.name}, use the English term
 - Be warm, patient, and supportive in tone
-- Use simple, clear language that elderly users can understand`;
+- Use simple, clear language that anyone can understand`;
 }
 
 /**

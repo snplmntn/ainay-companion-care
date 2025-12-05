@@ -1,20 +1,20 @@
-import React, { useState, useCallback } from "react";
-import { Users, Bell, Settings, Activity, Heart, Wifi, WifiOff, RefreshCw } from "lucide-react";
+import React, { useCallback, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Users, Bell, Activity, Heart, Wifi, WifiOff, RefreshCw, Settings, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Navigation } from "@/components/Navigation";
 import { useApp } from "@/contexts/AppContext";
 import {
   PatientLinkManager,
-  PatientDetailView,
   useRealtimeMultiplePatients,
+  PushNotificationSettings,
 } from "@/modules/companion";
-import type { LinkedPatient, Medication } from "@/types";
+import type { Medication } from "@/types";
 
 export default function CompanionDashboard() {
+  const navigate = useNavigate();
   const { userName, linkedPatients, refreshCompanionData } = useApp();
-  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(
-    null
-  );
+  const [showSettings, setShowSettings] = useState(false);
 
   // Use realtime sync for all linked patients
   const {
@@ -47,11 +47,6 @@ export default function CompanionDashboard() {
     return patient;
   });
 
-  // Find selected patient with realtime data
-  const selectedPatient = patientsWithRealtimeMeds.find(
-    (p) => p.id === selectedPatientId && p.linkStatus === "accepted"
-  ) as LinkedPatient | undefined;
-
   // Calculate overall stats using realtime data
   const activePatients = patientsWithRealtimeMeds.filter(
     (p) => p.linkStatus === "accepted"
@@ -74,34 +69,12 @@ export default function CompanionDashboard() {
     (p) => p.adherenceRate < 70 || p.medications.some((m) => !m.taken)
   );
 
-  // Handle patient medication update from detail view
-  const handlePatientUpdate = useCallback((patientId: string, medications: Medication[]) => {
-    // The realtime hook already handles the update, but we can add additional logic here
-    console.log(`Received update for patient ${patientId}`);
-  }, []);
-
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return "Good Morning";
     if (hour < 17) return "Good Afternoon";
     return "Good Evening";
   };
-
-  // If viewing a patient detail
-  if (selectedPatient) {
-    return (
-      <div className="min-h-screen bg-background pb-24">
-        <div className="p-4">
-          <PatientDetailView
-            patient={selectedPatient}
-            onBack={() => setSelectedPatientId(null)}
-            onPatientUpdate={handlePatientUpdate}
-          />
-        </div>
-        <Navigation />
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -148,8 +121,10 @@ export default function CompanionDashboard() {
               variant="ghost"
               size="icon"
               className="text-white hover:bg-white/20"
+              onClick={() => setShowSettings(!showSettings)}
+              title="Notification settings"
             >
-              <Bell className="w-6 h-6" />
+              <Settings className="w-6 h-6" />
             </Button>
           </div>
         </div>
@@ -178,6 +153,13 @@ export default function CompanionDashboard() {
 
       {/* Content */}
       <main className="p-4 space-y-6 -mt-4">
+        {/* Notification Settings (collapsible) */}
+        {showSettings && (
+          <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+            <PushNotificationSettings />
+          </div>
+        )}
+
         {/* Attention Alert */}
         {patientsNeedingAttention.length > 0 && (
           <div className="card-senior border-2 border-amber-300 bg-amber-50">
@@ -204,7 +186,7 @@ export default function CompanionDashboard() {
                 return (
                   <button
                     key={patient.id}
-                    onClick={() => setSelectedPatientId(patient.id)}
+                    onClick={() => navigate(`/companion/patient/${patient.id}`)}
                     className="w-full bg-white rounded-lg p-3 flex items-center justify-between text-left hover:bg-amber-50 transition-colors"
                   >
                     <div className="flex items-center gap-3">
@@ -232,7 +214,7 @@ export default function CompanionDashboard() {
         )}
 
         {/* Patient Link Manager */}
-        <PatientLinkManager onPatientSelect={setSelectedPatientId} />
+        <PatientLinkManager />
       </main>
 
       {/* Navigation */}

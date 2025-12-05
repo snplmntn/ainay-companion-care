@@ -1,23 +1,37 @@
 // ============================================
 // Notification Service - Missed Dose Detection & Alerts
+// OPTIMIZED: Batch processing and parallel operations
+// TIERED: Push notifications first, then email
 // ============================================
 
 import {
   getMedicationsToCheck,
-  getLinkedCompanions,
-  recordNotification,
-  wasNotificationAlreadySent,
+  getLinkedCompanionsForPatients,
+  recordNotificationsBatch,
+  getNotificationsSentToday,
 } from './supabase.js';
 import { sendMissedMedicationEmail, isEmailConfigured } from './email.js';
+import { sendMissedMedicationPush, isPushNotificationConfigured } from './pushNotifications.js';
 
-// Configuration
+// Configuration - Tiered notification thresholds
+// Push notifications come FIRST, email comes LATER
 const NOTIFICATION_CONFIG = {
-  // Minutes after scheduled time to consider a dose "missed"
-  MISSED_THRESHOLD_MINUTES: parseInt(process.env.MISSED_DOSE_THRESHOLD || '15'),
+  // === PUSH NOTIFICATION THRESHOLDS ===
+  // First push notification (30 seconds = 0.5 minutes)
+  PUSH_FIRST_THRESHOLD_MINUTES: parseFloat(process.env.PUSH_FIRST_THRESHOLD || '0.5'),
+  // Second push reminder (1 minute)
+  PUSH_SECOND_THRESHOLD_MINUTES: parseFloat(process.env.PUSH_SECOND_THRESHOLD || '1'),
+  
+  // === EMAIL NOTIFICATION THRESHOLD ===
+  // Email notification (3 minutes) - sent AFTER push notifications
+  EMAIL_THRESHOLD_MINUTES: parseFloat(process.env.EMAIL_THRESHOLD || '3'),
+  
   // Maximum minutes past scheduled time to still send notification (avoid old notifications)
   MAX_MINUTES_PAST: parseInt(process.env.MAX_NOTIFICATION_WINDOW || '120'),
   // Whether to enable notifications
   ENABLED: process.env.NOTIFICATIONS_ENABLED !== 'false',
+  // Maximum concurrent sends
+  MAX_CONCURRENT_SENDS: parseInt(process.env.MAX_CONCURRENT_SENDS || '5'),
 };
 
 /**
@@ -55,7 +69,7 @@ function parseTimeString(timeStr) {
 }
 
 /**
- * Calculate minutes since a scheduled time
+ * Calculate minutes since a scheduled time (with decimal precision)
  */
 function minutesSinceScheduledTime(scheduledTime, currentTime = new Date()) {
   const parsed = parseTimeString(scheduledTime);
@@ -65,29 +79,52 @@ function minutesSinceScheduledTime(scheduledTime, currentTime = new Date()) {
   scheduledDate.setHours(parsed.hours, parsed.minutes, 0, 0);
   
   const diffMs = currentTime.getTime() - scheduledDate.getTime();
-  return Math.floor(diffMs / 60000); // Convert to minutes
+  return diffMs / 60000; // Convert to minutes (with decimals for precision)
 }
 
 /**
- * Check all medications for missed doses and send notifications
+ * Process items in batches with controlled concurrency
+ */
+async function processBatched(items, fn, concurrency) {
+  const results = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.allSettled(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
+/**
+ * Check all medications for missed doses and send TIERED notifications
+ * 
+ * Notification Timeline:
+ * - 30 seconds (0.5 min): First push notification
+ * - 1 minute: Second push notification (reminder)
+ * - 3 minutes: Email notification
+ * 
+ * Push notifications are sent BEFORE email to give instant alerts
  */
 export async function checkAndNotifyMissedDoses() {
   if (!NOTIFICATION_CONFIG.ENABLED) {
     console.log('[Notifications] Notifications are disabled');
-    return { checked: 0, notified: 0, errors: [] };
+    return { checked: 0, notified: 0, pushSent: 0, emailSent: 0, errors: [] };
   }
 
-  console.log('[Notifications] Checking for missed doses...');
+  console.log('[Notifications] Checking for missed doses (tiered notifications)...');
+  console.log(`[Notifications] Thresholds - Push1: ${NOTIFICATION_CONFIG.PUSH_FIRST_THRESHOLD_MINUTES}min, Push2: ${NOTIFICATION_CONFIG.PUSH_SECOND_THRESHOLD_MINUTES}min, Email: ${NOTIFICATION_CONFIG.EMAIL_THRESHOLD_MINUTES}min`);
   
   const now = new Date();
   const results = {
     checked: 0,
     notified: 0,
+    pushSent: 0,
+    emailSent: 0,
     errors: [],
     details: [],
   };
   
-  // Get all medications that are not taken
+  // STEP 1: Get all untaken medications
   const { medications, error: fetchError } = await getMedicationsToCheck();
   
   if (fetchError) {
@@ -98,111 +135,238 @@ export async function checkAndNotifyMissedDoses() {
   
   console.log(`[Notifications] Found ${medications.length} untaken medications`);
   results.checked = medications.length;
+
+  if (medications.length === 0) {
+    return results;
+  }
+
+  // STEP 2: Categorize medications by notification tier
+  const pushFirstMeds = [];   // >= 30 seconds
+  const pushSecondMeds = [];  // >= 1 minute  
+  const emailMeds = [];       // >= 3 minutes
   
   for (const med of medications) {
-    try {
-      // Calculate minutes since scheduled time
-      const scheduledTime = med.time || med.start_time;
-      const minutesMissed = minutesSinceScheduledTime(scheduledTime, now);
-      
-      if (minutesMissed === null) {
-        console.log(`[Notifications] Could not parse time for ${med.name}: ${scheduledTime}`);
-        continue;
-      }
-      
-      // Check if within notification window
-      if (minutesMissed < NOTIFICATION_CONFIG.MISSED_THRESHOLD_MINUTES) {
-        // Not missed yet
-        continue;
-      }
-      
-      if (minutesMissed > NOTIFICATION_CONFIG.MAX_MINUTES_PAST) {
-        // Too old, skip
-        console.log(`[Notifications] Skipping ${med.name} - too old (${minutesMissed} min)`);
-        continue;
-      }
-      
-      console.log(`[Notifications] ${med.name} is ${minutesMissed} min past scheduled time`);
-      
-      // Get linked companions for this patient
-      const { companions, error: companionError } = await getLinkedCompanions(med.user_id);
-      
-      if (companionError) {
-        results.errors.push(`Failed to get companions for ${med.user_id}: ${companionError}`);
-        continue;
-      }
-      
-      if (companions.length === 0) {
-        console.log(`[Notifications] No companions linked for patient ${med.user_id}`);
-        continue;
-      }
-      
-      // Get patient info
+    const scheduledTime = med.time || med.start_time;
+    const minutesMissed = minutesSinceScheduledTime(scheduledTime, now);
+    
+    if (minutesMissed === null) {
+      console.log(`[Notifications] Could not parse time for ${med.name}: ${scheduledTime}`);
+      continue;
+    }
+    
+    if (minutesMissed < NOTIFICATION_CONFIG.PUSH_FIRST_THRESHOLD_MINUTES) {
+      continue; // Not missed yet (less than 30 seconds)
+    }
+    
+    if (minutesMissed > NOTIFICATION_CONFIG.MAX_MINUTES_PAST) {
+      console.log(`[Notifications] Skipping ${med.name} - too old (${minutesMissed.toFixed(1)} min)`);
+      continue;
+    }
+    
+    const medWithTime = {
+      ...med,
+      scheduledTime,
+      minutesMissed,
+    };
+    
+    // Categorize by tier
+    if (minutesMissed >= NOTIFICATION_CONFIG.EMAIL_THRESHOLD_MINUTES) {
+      emailMeds.push(medWithTime);
+    }
+    if (minutesMissed >= NOTIFICATION_CONFIG.PUSH_SECOND_THRESHOLD_MINUTES) {
+      pushSecondMeds.push(medWithTime);
+    }
+    if (minutesMissed >= NOTIFICATION_CONFIG.PUSH_FIRST_THRESHOLD_MINUTES) {
+      pushFirstMeds.push(medWithTime);
+    }
+  }
+
+  console.log(`[Notifications] Tier counts - Push1: ${pushFirstMeds.length}, Push2: ${pushSecondMeds.length}, Email: ${emailMeds.length}`);
+
+  if (pushFirstMeds.length === 0) {
+    console.log('[Notifications] No medications past first threshold');
+    return results;
+  }
+
+  // STEP 3: Batch fetch companions for all affected patients
+  const allMeds = [...new Map([...pushFirstMeds, ...pushSecondMeds, ...emailMeds].map(m => [m.id, m])).values()];
+  const patientIds = [...new Set(allMeds.map(m => m.user_id))];
+  const { companionsByPatient, error: companionError } = await getLinkedCompanionsForPatients(patientIds);
+  
+  if (companionError) {
+    results.errors.push(`Failed to fetch companions: ${companionError}`);
+    return results;
+  }
+
+  // STEP 4: Check notification history (tracks push_first, push_second, email separately)
+  const medicationIds = allMeds.map(m => m.id);
+  const { sentPairs, error: historyError } = await getNotificationsSentToday(medicationIds, now);
+  
+  if (historyError) {
+    results.errors.push(`Failed to check notification history: ${historyError}`);
+  }
+
+  const notificationRecords = [];
+
+  // STEP 5A: Send FIRST push notifications (30 seconds threshold)
+  if (isPushNotificationConfigured() && pushFirstMeds.length > 0) {
+    console.log(`[Notifications] Processing ${pushFirstMeds.length} first push notifications...`);
+    
+    for (const med of pushFirstMeds) {
+      const companions = companionsByPatient.get(med.user_id) || [];
       const patientName = med.user?.name || 'Your patient';
-      const patientEmail = med.user?.email || '';
       
-      // Send notification to each companion
       for (const companion of companions) {
-        // Check if already notified today
-        const alreadySent = await wasNotificationAlreadySent(med.id, companion.id, now);
-        if (alreadySent) {
-          console.log(`[Notifications] Already notified ${companion.name} about ${med.name} today`);
-          continue;
-        }
+        const pairKey = `${med.id}|${companion.id}|push_first`;
+        if (sentPairs.has(pairKey)) continue;
         
-        if (!companion.email) {
-          console.log(`[Notifications] Companion ${companion.name} has no email`);
-          continue;
-        }
-        
-        // Send email notification
-        console.log(`[Notifications] Sending notification to ${companion.name} (${companion.email})`);
-        
-        const emailResult = await sendMissedMedicationEmail({
-          companionName: companion.name,
-          companionEmail: companion.email,
-          patientName,
-          medicationName: med.name,
-          dosage: med.dosage,
-          scheduledTime,
-          minutesMissed,
-        });
-        
-        // Record the notification
-        await recordNotification({
-          patientId: med.user_id,
-          companionId: companion.id,
-          medicationId: med.id,
-          type: 'missed_medication',
-          channel: 'email',
-          recipientEmail: companion.email,
-          message: `${patientName} missed ${med.name} (${med.dosage}) scheduled at ${scheduledTime}`,
-          scheduledTime,
-          status: emailResult.success ? 'sent' : 'failed',
-        });
-        
-        if (emailResult.success) {
-          results.notified++;
-          results.details.push({
-            medication: med.name,
-            patient: patientName,
-            companion: companion.name,
-            minutesMissed,
-            messageId: emailResult.messageId,
+        try {
+          const pushResult = await sendMissedMedicationPush({
+            companionId: companion.id,
+            patientName,
+            medicationName: med.name,
+            dosage: med.dosage,
+            scheduledTime: med.scheduledTime,
+            minutesMissed: med.minutesMissed,
           });
-        } else {
-          results.errors.push(
-            `Failed to notify ${companion.name} about ${med.name}: ${emailResult.error}`
-          );
+          
+          if (pushResult.success) {
+            results.pushSent++;
+            results.notified++;
+            console.log(`[Notifications] 🔔 Push (1st) sent to ${companion.name} for ${med.name}`);
+            
+            notificationRecords.push({
+              patientId: med.user_id,
+              companionId: companion.id,
+              medicationId: med.id,
+              type: 'missed_medication_push_first',
+              channel: 'push',
+              recipientEmail: companion.email,
+              message: `[PUSH 1] ${patientName} missed ${med.name}`,
+              scheduledTime: med.scheduledTime,
+              status: 'sent',
+            });
+          }
+        } catch (error) {
+          console.error(`[Notifications] Push (1st) failed for ${companion.name}:`, error.message);
         }
       }
-    } catch (error) {
-      console.error(`[Notifications] Error processing ${med.name}:`, error);
-      results.errors.push(`Error processing ${med.name}: ${error.message}`);
+    }
+  }
+
+  // STEP 5B: Send SECOND push notifications (1 minute threshold)
+  if (isPushNotificationConfigured() && pushSecondMeds.length > 0) {
+    console.log(`[Notifications] Processing ${pushSecondMeds.length} second push notifications...`);
+    
+    for (const med of pushSecondMeds) {
+      const companions = companionsByPatient.get(med.user_id) || [];
+      const patientName = med.user?.name || 'Your patient';
+      
+      for (const companion of companions) {
+        const pairKey = `${med.id}|${companion.id}|push_second`;
+        if (sentPairs.has(pairKey)) continue;
+        
+        try {
+          const pushResult = await sendMissedMedicationPush({
+            companionId: companion.id,
+            patientName,
+            medicationName: med.name,
+            dosage: med.dosage,
+            scheduledTime: med.scheduledTime,
+            minutesMissed: med.minutesMissed,
+          });
+          
+          if (pushResult.success) {
+            results.pushSent++;
+            results.notified++;
+            console.log(`[Notifications] 🔔🔔 Push (2nd) sent to ${companion.name} for ${med.name}`);
+            
+            notificationRecords.push({
+              patientId: med.user_id,
+              companionId: companion.id,
+              medicationId: med.id,
+              type: 'missed_medication_push_second',
+              channel: 'push',
+              recipientEmail: companion.email,
+              message: `[PUSH 2] ${patientName} missed ${med.name}`,
+              scheduledTime: med.scheduledTime,
+              status: 'sent',
+            });
+          }
+        } catch (error) {
+          console.error(`[Notifications] Push (2nd) failed for ${companion.name}:`, error.message);
+        }
+      }
+    }
+  }
+
+  // STEP 5C: Send EMAIL notifications (3 minutes threshold)
+  if (isEmailConfigured() && emailMeds.length > 0) {
+    console.log(`[Notifications] Processing ${emailMeds.length} email notifications...`);
+    
+    for (const med of emailMeds) {
+      const companions = companionsByPatient.get(med.user_id) || [];
+      const patientName = med.user?.name || 'Your patient';
+      
+      for (const companion of companions) {
+        if (!companion.email) continue;
+        
+        const pairKey = `${med.id}|${companion.id}|email`;
+        if (sentPairs.has(pairKey)) continue;
+        
+        try {
+          const emailResult = await sendMissedMedicationEmail({
+            companionName: companion.name,
+            companionEmail: companion.email,
+            patientName,
+            medicationName: med.name,
+            dosage: med.dosage,
+            scheduledTime: med.scheduledTime,
+            minutesMissed: med.minutesMissed,
+          });
+          
+          if (emailResult.success) {
+            results.emailSent++;
+            results.notified++;
+            console.log(`[Notifications] 📧 Email sent to ${companion.name} for ${med.name}`);
+            
+            notificationRecords.push({
+              patientId: med.user_id,
+              companionId: companion.id,
+              medicationId: med.id,
+              type: 'missed_medication_email',
+              channel: 'email',
+              recipientEmail: companion.email,
+              message: `[EMAIL] ${patientName} missed ${med.name} (${med.dosage}) scheduled at ${med.scheduledTime}`,
+              scheduledTime: med.scheduledTime,
+              status: 'sent',
+            });
+            
+            results.details.push({
+              medication: med.name,
+              patient: patientName,
+              companion: companion.name,
+              minutesMissed: med.minutesMissed,
+              messageId: emailResult.messageId,
+            });
+          }
+        } catch (error) {
+          console.error(`[Notifications] Email failed for ${companion.name}:`, error.message);
+          results.errors.push(`Failed to email ${companion.name}: ${error.message}`);
+        }
+      }
+    }
+  }
+
+  // STEP 6: Record all notifications sent
+  if (notificationRecords.length > 0) {
+    const { error: recordError } = await recordNotificationsBatch(notificationRecords);
+    if (recordError) {
+      results.errors.push(`Failed to record notifications: ${recordError}`);
     }
   }
   
-  console.log(`[Notifications] Complete: ${results.notified} notifications sent`);
+  console.log(`[Notifications] Complete: ${results.pushSent} push + ${results.emailSent} email = ${results.notified} total`);
   return results;
 }
 
@@ -213,7 +377,12 @@ export function getNotificationStatus() {
   return {
     enabled: NOTIFICATION_CONFIG.ENABLED,
     emailConfigured: isEmailConfigured(),
-    missedThresholdMinutes: NOTIFICATION_CONFIG.MISSED_THRESHOLD_MINUTES,
+    pushConfigured: isPushNotificationConfigured(),
+    thresholds: {
+      pushFirst: `${NOTIFICATION_CONFIG.PUSH_FIRST_THRESHOLD_MINUTES} min (${NOTIFICATION_CONFIG.PUSH_FIRST_THRESHOLD_MINUTES * 60} sec)`,
+      pushSecond: `${NOTIFICATION_CONFIG.PUSH_SECOND_THRESHOLD_MINUTES} min`,
+      email: `${NOTIFICATION_CONFIG.EMAIL_THRESHOLD_MINUTES} min`,
+    },
     maxNotificationWindow: NOTIFICATION_CONFIG.MAX_MINUTES_PAST,
   };
 }
@@ -234,4 +403,3 @@ export async function sendTestNotification(companionEmail, companionName = 'Test
   
   return result;
 }
-

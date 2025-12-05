@@ -1,12 +1,22 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, Users, User } from 'lucide-react';
+import { Heart, Users, User, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useApp } from '@/contexts/AppContext';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { setUserRole } = useApp();
+  const { setUserRole, setUserName } = useApp();
+  const [step, setStep] = useState<'name' | 'role'>('name');
+  const [name, setName] = useState('');
+
+  const handleNameSubmit = () => {
+    if (name.trim()) {
+      setUserName(name.trim());
+      setStep('role');
+    }
+  };
 
   const handleLogin = (role: 'patient' | 'companion') => {
     setUserRole(role);
@@ -27,31 +37,62 @@ export default function Login() {
         </h1>
         
         <p className="text-senior-lg text-muted-foreground text-center mb-12 max-w-sm">
-          Your digital mother for health — caring for you every step of the way.
+          Your digital health companion — caring for you every step of the way.
         </p>
 
-        {/* Login Options */}
-        <div className="w-full max-w-sm space-y-4">
-          <Button
-            variant="coral"
-            size="xl"
-            className="w-full"
-            onClick={() => handleLogin('patient')}
-          >
-            <User className="w-7 h-7" />
-            I'm a Patient
-          </Button>
+        {step === 'name' ? (
+          /* Name Input Step */
+          <div className="w-full max-w-sm space-y-4">
+            <div>
+              <label className="text-senior-sm font-semibold text-muted-foreground mb-2 block">
+                What's your name?
+              </label>
+              <Input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="Enter your name"
+                className="input-senior text-center"
+                onKeyDown={e => e.key === 'Enter' && handleNameSubmit()}
+              />
+            </div>
+            <Button
+              variant="coral"
+              size="xl"
+              className="w-full"
+              onClick={handleNameSubmit}
+              disabled={!name.trim()}
+            >
+              Continue
+              <ArrowRight className="w-6 h-6" />
+            </Button>
+          </div>
+        ) : (
+          /* Role Selection Step */
+          <div className="w-full max-w-sm space-y-4">
+            <p className="text-senior-base text-center text-muted-foreground mb-4">
+              Hi <span className="text-primary font-semibold">{name}</span>! How will you use AInay?
+            </p>
+            <Button
+              variant="coral"
+              size="xl"
+              className="w-full"
+              onClick={() => handleLogin('patient')}
+            >
+              <User className="w-7 h-7" />
+              I'm managing my health
+            </Button>
 
-          <Button
-            variant="teal"
-            size="xl"
-            className="w-full"
-            onClick={() => handleLogin('companion')}
-          >
-            <Users className="w-7 h-7" />
-            I'm a Companion
-          </Button>
-        </div>
+            <Button
+              variant="teal"
+              size="xl"
+              className="w-full"
+              onClick={() => handleLogin('companion')}
+            >
+              <Users className="w-7 h-7" />
+              I'm a caregiver/companion
+            </Button>
+          </div>
+        )}
 
         {/* Features preview */}
         <div className="mt-12 grid grid-cols-3 gap-4 w-full max-w-sm">
@@ -71,7 +112,7 @@ export default function Login() {
       {/* Footer */}
       <div className="p-6 text-center">
         <p className="text-sm text-muted-foreground">
-          Made with ❤️ for our beloved seniors
+          Made with ❤️ for better health
         </p>
       </div>
     </div>

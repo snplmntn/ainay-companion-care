@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Camera, Mic, Keyboard, Check } from 'lucide-react';
+import { X, Camera, Mic, Keyboard, Check, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useApp } from '@/contexts/AppContext';
@@ -16,6 +16,7 @@ export function AddMedicineModal({ isOpen, onClose }: Props) {
   const { addMedication } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>('talk');
   const [isListening, setIsListening] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     dosage: '',
@@ -101,21 +102,98 @@ export function AddMedicineModal({ isOpen, onClose }: Props) {
 
         {/* Tab Content */}
         <div className="p-6">
-          {activeTab === 'scan' && (
-            <div className="text-center py-12">
-              <div className="w-32 h-32 mx-auto bg-muted rounded-3xl flex items-center justify-center mb-6">
-                <Camera className="w-16 h-16 text-muted-foreground" />
-              </div>
-              <p className="text-senior-base text-muted-foreground mb-4">
-                Point your camera at the medicine label
-              </p>
-              <Button variant="coral" size="lg" className="w-full">
-                Open Camera
-              </Button>
-              <p className="text-sm text-muted-foreground mt-4">
-                {/* TODO: Connect to OCR API */}
-                Camera feature coming soon
-              </p>
+        {activeTab === 'scan' && (
+            <div className="text-center py-8">
+              {isScanning ? (
+                <>
+                  {/* Scanning Animation */}
+                  <div className="w-48 h-48 mx-auto bg-muted rounded-3xl flex items-center justify-center mb-6 relative overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-b from-primary/20 to-transparent animate-pulse" />
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-primary animate-[scan_2s_ease-in-out_infinite]" />
+                    <Camera className="w-16 h-16 text-muted-foreground" />
+                  </div>
+                  <p className="text-senior-lg font-semibold text-primary mb-2">Scanning...</p>
+                  <p className="text-senior-sm text-muted-foreground">
+                    Reading medicine label
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="w-32 h-32 mx-auto bg-muted rounded-3xl flex items-center justify-center mb-6">
+                    <Camera className="w-16 h-16 text-muted-foreground" />
+                  </div>
+                  <p className="text-senior-base text-muted-foreground mb-4">
+                    Point your camera at the medicine label
+                  </p>
+                  <Button 
+                    variant="coral" 
+                    size="lg" 
+                    className="w-full"
+                    onClick={() => {
+                      setIsScanning(true);
+                      // TODO: Connect to OCR API
+                      // Simulate scanning
+                      setTimeout(() => {
+                        setIsScanning(false);
+                        setFormData({
+                          name: 'Metformin',
+                          dosage: '500mg',
+                          time: '12:00 PM',
+                          instructions: 'Take with food',
+                        });
+                        toast({
+                          title: "Scan complete!",
+                          description: "Medicine details have been detected.",
+                        });
+                      }, 3000);
+                    }}
+                  >
+                    <Camera className="w-6 h-6" />
+                    Scan Medicine
+                  </Button>
+                </>
+              )}
+
+              {/* Form (shown after scan) */}
+              {formData.name && !isScanning && (
+                <div className="space-y-4 text-left mt-6">
+                  <div>
+                    <label className="text-senior-sm font-semibold text-muted-foreground mb-2 block">
+                      Medicine Name
+                    </label>
+                    <Input
+                      value={formData.name}
+                      onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="e.g., Metformin"
+                      className="input-senior"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-senior-sm font-semibold text-muted-foreground mb-2 block">
+                        Dosage
+                      </label>
+                      <Input
+                        value={formData.dosage}
+                        onChange={e => setFormData(prev => ({ ...prev, dosage: e.target.value }))}
+                        placeholder="e.g., 500mg"
+                        className="input-senior"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-senior-sm font-semibold text-muted-foreground mb-2 block">
+                        Time
+                      </label>
+                      <Input
+                        value={formData.time}
+                        onChange={e => setFormData(prev => ({ ...prev, time: e.target.value }))}
+                        placeholder="e.g., 12:00 PM"
+                        className="input-senior"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

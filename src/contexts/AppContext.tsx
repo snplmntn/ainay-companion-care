@@ -21,7 +21,7 @@ const defaultMedications: Medication[] = [
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [userRole, setUserRole] = useState<UserRole>(null);
-  const [userName, setUserName] = useState('Lola');
+  const [userName, setUserName] = useState('');
   const [medications, setMedications] = useState<Medication[]>(defaultMedications);
 
   const addMedication = (med: Omit<Medication, 'id' | 'taken'>) => {

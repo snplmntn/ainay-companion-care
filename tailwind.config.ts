@@ -2,7 +2,12 @@ import type { Config } from "tailwindcss";
 
 export default {
   darkMode: ["class"],
-  content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
+  content: [
+    "./pages/**/*.{ts,tsx}",
+    "./components/**/*.{ts,tsx}",
+    "./app/**/*.{ts,tsx}",
+    "./src/**/*.{ts,tsx}",
+  ],
   prefix: "",
   theme: {
     container: {
@@ -14,15 +19,15 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Nunito', 'system-ui', 'sans-serif'],
+        sans: ["Nunito", "system-ui", "sans-serif"],
       },
       fontSize: {
-        'senior-sm': ['1rem', { lineHeight: '1.5' }],
-        'senior-base': ['1.125rem', { lineHeight: '1.6' }],
-        'senior-lg': ['1.25rem', { lineHeight: '1.6' }],
-        'senior-xl': ['1.5rem', { lineHeight: '1.5' }],
-        'senior-2xl': ['1.875rem', { lineHeight: '1.4' }],
-        'senior-3xl': ['2.25rem', { lineHeight: '1.3' }],
+        "senior-sm": ["1rem", { lineHeight: "1.5" }],
+        "senior-base": ["1.125rem", { lineHeight: "1.6" }],
+        "senior-lg": ["1.25rem", { lineHeight: "1.6" }],
+        "senior-xl": ["1.5rem", { lineHeight: "1.5" }],
+        "senior-2xl": ["1.875rem", { lineHeight: "1.4" }],
+        "senior-3xl": ["2.25rem", { lineHeight: "1.3" }],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -71,8 +76,8 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
-        '2xl': '1.5rem',
-        '3xl': '2rem',
+        "2xl": "1.5rem",
+        "3xl": "2rem",
       },
       keyframes: {
         "accordion-down": {
@@ -89,9 +94,9 @@ export default {
         "accordion-up": "accordion-up 0.2s ease-out",
       },
       spacing: {
-        'safe-bottom': 'env(safe-area-inset-bottom)',
+        "safe-bottom": "env(safe-area-inset-bottom)",
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
 } satisfies Config;

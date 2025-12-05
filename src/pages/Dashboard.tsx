@@ -1,24 +1,69 @@
-import React, { useState } from 'react';
-import { Plus, Sun, CloudSun } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { MorningBriefing } from '@/components/MorningBriefing';
-import { MedicationTimeline } from '@/components/MedicationTimeline';
-import { AddMedicineModal } from '@/components/AddMedicineModal';
-import { Navigation } from '@/components/Navigation';
-import { useApp } from '@/contexts/AppContext';
+import React, { useState, useEffect } from "react";
+import { Navigate } from "react-router-dom";
+import { Plus, Sun, CloudSun, Cloud, CloudRain, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { MorningBriefing } from "@/components/MorningBriefing";
+import { MedicationTimeline } from "@/components/MedicationTimeline";
+import { AddMedicineModal } from "@/components/AddMedicineModal";
+import { Navigation } from "@/components/Navigation";
+import { useApp } from "@/contexts/AppContext";
+import { fetchWeather, type WeatherData } from "@/modules/morning-briefing";
+import { FeatureGate, useSubscription, FREE_TIER_MAX_MEDICATIONS } from "@/modules/subscription";
+import { toast } from "@/hooks/use-toast";
+
+// Weather icon based on condition
+function WeatherIcon({
+  condition,
+  className,
+}: {
+  condition: string;
+  className?: string;
+}) {
+  const cond = condition.toLowerCase();
+  if (
+    cond.includes("rain") ||
+    cond.includes("drizzle") ||
+    cond.includes("shower")
+  ) {
+    return <CloudRain className={className} />;
+  }
+  if (cond.includes("cloud") || cond.includes("overcast")) {
+    return <Cloud className={className} />;
+  }
+  return <Sun className={className} />;
+}
 
 export default function Dashboard() {
-  const { userName, medications } = useApp();
+  const { userName, medications, userRole } = useApp();
+  
+  // Redirect companions to their dashboard
+  if (userRole === "companion") {
+    return <Navigate to="/companion" replace />;
+  }
   const [showAddModal, setShowAddModal] = useState(false);
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(true);
+  const { canAddMoreMedications, isFree } = useSubscription();
 
-  const takenCount = medications.filter(m => m.taken).length;
-  const progress = Math.round((takenCount / medications.length) * 100);
+  // Fetch weather on mount
+  useEffect(() => {
+    fetchWeather()
+      .then(setWeather)
+      .catch((err) => console.warn("Weather fetch failed:", err))
+      .finally(() => setWeatherLoading(false));
+  }, []);
+
+  const takenCount = medications.filter((m) => m.taken).length;
+  const progress =
+    medications.length > 0
+      ? Math.round((takenCount / medications.length) * 100)
+      : 0;
 
   const getGreeting = () => {
     const hour = new Date().getHours();
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
+    if (hour < 12) return "Good Morning";
+    if (hour < 17) return "Good Afternoon";
+    return "Good Evening";
   };
 
   return (
@@ -31,8 +76,27 @@ export default function Dashboard() {
               {getGreeting()}, <span className="text-primary">{userName}!</span>
             </h1>
             <div className="flex items-center gap-2 text-muted-foreground mt-1">
-              <CloudSun className="w-5 h-5 text-secondary" />
-              <span className="text-senior-sm">28°C, Partly Cloudy</span>
+              {weatherLoading ? (
+                <>
+                  <Loader2 className="w-5 h-5 text-secondary animate-spin" />
+                  <span className="text-senior-sm">Loading weather...</span>
+                </>
+              ) : weather ? (
+                <>
+                  <WeatherIcon
+                    condition={weather.condition}
+                    className="w-5 h-5 text-secondary"
+                  />
+                  <span className="text-senior-sm">
+                    {weather.temperature}°C, {weather.condition}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <CloudSun className="w-5 h-5 text-secondary" />
+                  <span className="text-senior-sm">Weather unavailable</span>
+                </>
+              )}
             </div>
           </div>
 
@@ -70,18 +134,30 @@ export default function Dashboard() {
 
       {/* Content */}
       <main className="p-4 space-y-6">
-        {/* Morning Briefing */}
-        <MorningBriefing />
+        {/* Morning Briefing - Pro feature */}
+        <FeatureGate 
+          feature="morning_briefing" 
+          showPreview={true}
+          lockedMessage="Morning Briefing is a Pro feature"
+        >
+          <MorningBriefing />
+        </FeatureGate>
 
         {/* Quick Stats */}
         <div className="grid grid-cols-2 gap-4">
           <div className="card-senior bg-coral-light">
-            <p className="text-senior-sm text-muted-foreground mb-1">Today's Meds</p>
+            <p className="text-senior-sm text-muted-foreground mb-1">
+              Today's Meds
+            </p>
             <p className="text-senior-2xl text-primary">{medications.length}</p>
           </div>
           <div className="card-senior bg-teal-light">
-            <p className="text-senior-sm text-muted-foreground mb-1">Completed</p>
-            <p className="text-senior-2xl text-secondary">{takenCount}/{medications.length}</p>
+            <p className="text-senior-sm text-muted-foreground mb-1">
+              Completed
+            </p>
+            <p className="text-senior-2xl text-secondary">
+              {takenCount}/{medications.length}
+            </p>
           </div>
         </div>
 
@@ -94,15 +170,25 @@ export default function Dashboard() {
         variant="coral"
         size="icon-xl"
         className="fixed bottom-24 right-4 rounded-full shadow-2xl shadow-primary/40 z-30"
-        onClick={() => setShowAddModal(true)}
+        onClick={() => {
+          if (!canAddMoreMedications(medications.length)) {
+            toast({
+              title: "Medication limit reached",
+              description: `Free plan allows up to ${FREE_TIER_MAX_MEDICATIONS} medications. Upgrade to Pro for unlimited.`,
+              variant: "destructive",
+            });
+            return;
+          }
+          setShowAddModal(true);
+        }}
       >
         <Plus className="w-10 h-10" />
       </Button>
 
       {/* Add Medicine Modal */}
-      <AddMedicineModal 
-        isOpen={showAddModal} 
-        onClose={() => setShowAddModal(false)} 
+      <AddMedicineModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
       />
 
       {/* Navigation */}

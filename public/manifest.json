@@ -1,7 +1,7 @@
 {
-  "name": "AInay - Your Digital Health Companion",
+  "name": "AInay - Your Digital Caretaker",
   "short_name": "AInay",
-  "description": "Your caring digital mother for health. Manage medications with voice assistance.",
+  "description": "Your digital caretaker for health. Manage medications with voice assistance.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#FDF8F6",
@@ -9,13 +9,13 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/icon-192.png",
+      "src": "/icon.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon-512.png",
+      "src": "/icon.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

@@ -30,6 +30,16 @@ import {
   getPushNotificationStatus,
 } from "./services/pushNotifications.js";
 import {
+  isTelegramConfigured,
+  startTelegramBot,
+  stopTelegramBot,
+  getTelegramStatus,
+  generateTelegramLinkCode,
+  checkTelegramLinked,
+  unlinkTelegramForUser,
+  sendTestTelegramNotification,
+} from "./services/telegramBot.js";
+import {
   getNotificationStats,
   autoExpireAllMedications,
   getAllExpiringMedications,
@@ -164,7 +174,8 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // Apply general rate limiting to all routes
 app.use(generalLimiter);
@@ -262,7 +273,7 @@ app.post("/api/openai/transcribe", openaiLimiter, async (req, res) => {
 
   try {
     // For transcription, we expect base64 audio data
-    const { audio, filename, model, language } = req.body;
+    const { audio, filename, model, language, prompt } = req.body;
 
     if (!audio) {
       return res.status(400).json({ error: "audio (base64) is required" });
@@ -278,6 +289,10 @@ app.post("/api/openai/transcribe", openaiLimiter, async (req, res) => {
     formData.append("model", model || "whisper-1");
     if (language) {
       formData.append("language", language);
+    }
+    // Add prompt for medicine name recognition enhancement
+    if (prompt) {
+      formData.append("prompt", prompt);
     }
 
     const response = await fetch(OPENAI_WHISPER_URL, {
@@ -957,8 +972,152 @@ app.post(
 );
 
 // ============================================
+// Telegram Bot Endpoints
+// ============================================
+
+/**
+ * Get Telegram bot status
+ * GET /api/telegram/status
+ */
+app.get("/api/telegram/status", (req, res) => {
+  res.json({
+    telegram: getTelegramStatus(),
+    configured: isTelegramConfigured(),
+  });
+});
+
+/**
+ * Generate a Telegram link code for the user
+ * POST /api/telegram/link-code
+ * Body: { userId }
+ */
+const telegramLinkCodeSchema = z.object({
+  userId: z.string().min(1, "userId is required"),
+});
+
+app.post(
+  "/api/telegram/link-code",
+  notificationLimiter,
+  validateBody(telegramLinkCodeSchema),
+  async (req, res) => {
+    try {
+      const { userId } = req.body;
+
+      if (!isTelegramConfigured()) {
+        return res.status(503).json({
+          error: "Telegram bot not configured",
+          details: "Set TELEGRAM_BOT_TOKEN in your server .env file",
+        });
+      }
+
+      console.log("[Telegram] Generating link code for:", userId);
+
+      const result = await generateTelegramLinkCode(userId);
+
+      res.json(result);
+    } catch (error) {
+      console.error("[Telegram] Generate link code error:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * Check if user has Telegram linked
+ * GET /api/telegram/check/:userId
+ */
+app.get("/api/telegram/check/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const result = await checkTelegramLinked(userId);
+
+    res.json(result);
+  } catch (error) {
+    console.error("[Telegram] Check linked error:", error);
+    res.status(500).json({
+      linked: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * Unlink Telegram from user account
+ * POST /api/telegram/unlink
+ * Body: { userId }
+ */
+const telegramUnlinkSchema = z.object({
+  userId: z.string().min(1, "userId is required"),
+});
+
+app.post(
+  "/api/telegram/unlink",
+  notificationLimiter,
+  validateBody(telegramUnlinkSchema),
+  async (req, res) => {
+    try {
+      const { userId } = req.body;
+
+      console.log("[Telegram] Unlinking user:", userId);
+
+      const result = await unlinkTelegramForUser(userId);
+
+      res.json(result);
+    } catch (error) {
+      console.error("[Telegram] Unlink error:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * Send a test Telegram notification
+ * POST /api/telegram/test
+ * Body: { userId }
+ */
+const telegramTestSchema = z.object({
+  userId: z.string().min(1, "userId is required"),
+});
+
+app.post(
+  "/api/telegram/test",
+  notificationLimiter,
+  validateBody(telegramTestSchema),
+  async (req, res) => {
+    try {
+      const { userId } = req.body;
+
+      if (!isTelegramConfigured()) {
+        return res.status(503).json({
+          error: "Telegram bot not configured",
+        });
+      }
+
+      console.log("[Telegram] Sending test notification to:", userId);
+
+      const result = await sendTestTelegramNotification(userId);
+
+      res.json(result);
+    } catch (error) {
+      console.error("[Telegram] Test notification error:", error);
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+);
+
+// ============================================
 // Cron Job - Check for missed doses
-// TIERED: Runs every 30 seconds for demo, check push at 30s, 1min, email at 3min
+// TIERED: Runs every 30 seconds for demo, check push at 30s, 1min, telegram at 1.5min, email at 3min
 // ============================================
 
 // Schedule: Every 30 seconds for demo presentation (to catch 30-second push threshold)
@@ -993,8 +1152,10 @@ function startNotificationCron() {
       if (results.notified > 0) {
         console.log(
           `[Cron] Sent ${results.pushSent || 0} push + ${
-            results.emailSent || 0
-          } email = ${results.notified} total`
+            results.telegramSent || 0
+          } telegram + ${results.emailSent || 0} email = ${
+            results.notified
+          } total`
         );
       }
       if (results.errors.length > 0) {
@@ -1440,6 +1601,38 @@ function getPayRexModeMessage() {
 }
 
 // ============================================
+// Error Handler - MUST be after all routes
+// ============================================
+
+// Handle PayloadTooLargeError and other errors with JSON responses
+app.use((err, req, res, next) => {
+  // Log the error for debugging
+  console.error(`[Error] ${err.type || err.name}: ${err.message}`);
+
+  // PayloadTooLargeError from body-parser
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({
+      error: "Request payload too large",
+      details: "Audio file is too large. Please record a shorter message.",
+      maxSize: "50MB",
+    });
+  }
+
+  // JSON parsing errors
+  if (err.type === "entity.parse.failed") {
+    return res.status(400).json({
+      error: "Invalid JSON in request body",
+      details: err.message,
+    });
+  }
+
+  // Generic server error
+  res.status(err.status || 500).json({
+    error: err.message || "Internal server error",
+  });
+});
+
+// ============================================
 // Start Server
 // ============================================
 
@@ -1457,6 +1650,9 @@ app.listen(PORT, async () => {
   const pushStatus = isPushNotificationConfigured()
     ? "✅ Configured"
     : "❌ Not configured";
+  const telegramStatus = isTelegramConfigured()
+    ? "✅ Configured"
+    : "❌ Not configured";
   const openaiStatus = isOpenAIConfigured()
     ? "✅ Configured"
     : "❌ Not configured";
@@ -1472,11 +1668,13 @@ app.listen(PORT, async () => {
 ║    • Email:         ${emailStatus.padEnd(20)}                ║
 ║    • PayRex:        ${payrexStatus.padEnd(20)}                ║
 ║    • Web Push:      ${pushStatus.padEnd(20)}                ║
+║    • Telegram:      ${telegramStatus.padEnd(20)}                ║
 ║    • OpenAI:        ${openaiStatus.padEnd(20)}                ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║  Tiered Notifications (for Demo):                             ║
 ║    • 30 sec: 🔔 First push notification                       ║
 ║    • 1 min:  🔔🔔 Second push reminder                        ║
+║    • 1.5 min: 📱 Telegram notification                        ║
 ║    • 3 min:  📧 Email notification                            ║
 ║    • Cron:   Every 30 seconds                                 ║
 ╠═══════════════════════════════════════════════════════════════╣
@@ -1506,6 +1704,13 @@ Push Notification Endpoints:
   POST /api/push/unsubscribe      - Unsubscribe from push notifications
   POST /api/push/test             - Send a test push notification
 
+Telegram Bot Endpoints:
+  GET  /api/telegram/status       - Get Telegram bot status
+  POST /api/telegram/link-code    - Generate a link code for Telegram
+  GET  /api/telegram/check/:userId - Check if user has Telegram linked
+  POST /api/telegram/unlink       - Unlink Telegram from account
+  POST /api/telegram/test         - Send a test Telegram notification
+
 Patient Reminder Endpoints:
   GET  /api/reminders/status            - Get patient reminder service status
   POST /api/reminders/check             - Manually trigger patient reminder check
@@ -1534,6 +1739,14 @@ Health:
 
   // OPTIMIZATION: Start session cleanup job
   startSessionCleanup();
+
+  // Start Telegram bot (if configured)
+  if (isTelegramConfigured()) {
+    const telegramStarted = await startTelegramBot();
+    if (telegramStarted) {
+      console.log("✅ Telegram bot started and listening for messages\n");
+    }
+  }
 
   // Show configuration hints
   if (!isSupabaseConfigured()) {
@@ -1573,6 +1786,13 @@ Health:
     );
   }
 
+  if (!isTelegramConfigured()) {
+    console.log("⚠️  TELEGRAM BOT not configured. Add to .env:");
+    console.log("   TELEGRAM_BOT_TOKEN=your-bot-token-from-botfather");
+    console.log("   TELEGRAM_BOT_USERNAME=YourBotUsername");
+    console.log("   Create a bot via @BotFather on Telegram\n");
+  }
+
   // Verify email connection if configured
   if (isEmailConfigured()) {
     const emailVerify = await verifyConnection();
@@ -1591,6 +1811,7 @@ process.on("SIGTERM", () => {
   stopPatientReminderCron();
   stopAutoExpireCron();
   stopSessionCleanup();
+  stopTelegramBot();
   process.exit(0);
 });
 
@@ -1600,5 +1821,6 @@ process.on("SIGINT", () => {
   stopPatientReminderCron();
   stopAutoExpireCron();
   stopSessionCleanup();
+  stopTelegramBot();
   process.exit(0);
 });

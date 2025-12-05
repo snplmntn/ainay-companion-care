@@ -59,12 +59,12 @@ export default function AskAInayForPatient() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
         <AlertCircle className="w-16 h-16 text-destructive mb-4" />
-        <h1 className="text-senior-xl font-bold mb-2">Access Denied</h1>
-        <p className="text-muted-foreground text-center mb-4">
-          This page is only available for caregivers.
+        <h1 className="text-senior-xl font-bold mb-2">Can't Open This Page</h1>
+        <p className="text-lg text-muted-foreground text-center mb-4">
+          This page is for helpers and caregivers only.
         </p>
-        <Button variant="coral" onClick={() => navigate("/dashboard")}>
-          Go to Dashboard
+        <Button variant="coral" size="lg" className="text-lg" onClick={() => navigate("/dashboard")}>
+          Go Home
         </Button>
       </div>
     );
@@ -84,19 +84,19 @@ export default function AskAInayForPatient() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
         <AlertCircle className="w-16 h-16 text-amber-500 mb-4" />
-        <h1 className="text-senior-xl font-bold mb-2">Patient Not Found</h1>
-        <p className="text-muted-foreground text-center mb-4">
-          The patient you're looking for doesn't exist or is not linked to your account.
+        <h1 className="text-senior-xl font-bold mb-2">Person Not Found</h1>
+        <p className="text-lg text-muted-foreground text-center mb-4">
+          We couldn't find this person. They may not be connected to your account yet.
         </p>
-        <Button variant="coral" onClick={() => navigate("/companion")}>
-          Back to Patients
+        <Button variant="coral" size="lg" className="text-lg" onClick={() => navigate("/companion")}>
+          Go Back
         </Button>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col lg:ml-20 xl:ml-24">
       {/* Header */}
       <header className="bg-card border-b border-border p-4 flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
@@ -105,21 +105,21 @@ export default function AskAInayForPatient() {
 
         <div className="flex items-center gap-3 flex-1">
           <img
-            src="/icon.png"
+            src="/icon.ico"
             alt="AInay"
-            className="w-12 h-12 rounded-full object-cover"
+            className="w-14 h-14 rounded-full object-cover"
           />
           <div>
-            <h1 className="text-senior-lg font-bold">Ask AInay</h1>
-            <p className="text-sm text-secondary font-medium">
-              For {patientWithRealtimeMeds.name}
+            <h1 className="text-senior-lg font-bold">Talk to AInay</h1>
+            <p className="text-base text-secondary font-medium">
+              Helping {patientWithRealtimeMeds.name}
             </p>
           </div>
         </div>
       </header>
 
       {/* Chat Interface with patient context */}
-      <div className="flex-1 flex flex-col pb-20">
+      <div className="flex-1 flex flex-col pb-20 lg:pb-4">
         <ChatInterface 
           targetPatient={patientWithRealtimeMeds}
           onMedicationsUpdated={handleMedicationsUpdated}

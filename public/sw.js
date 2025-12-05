@@ -23,8 +23,8 @@ self.addEventListener('push', (event) => {
   let data = {
     title: 'AInay Notification',
     body: 'You have a new notification',
-    icon: '/icon.png',
-    badge: '/icon.png',
+    icon: '/icon.ico',
+    badge: '/icon.ico',
     tag: 'ainay-notification',
     data: {},
   };
@@ -39,8 +39,8 @@ self.addEventListener('push', (event) => {
   
   const options = {
     body: data.body,
-    icon: data.icon || '/icon.png',
-    badge: data.badge || '/icon.png',
+    icon: data.icon || '/icon.ico',
+    badge: data.badge || '/icon.ico',
     tag: data.tag || 'ainay-notification',
     data: data.data || {},
     actions: data.actions || [],

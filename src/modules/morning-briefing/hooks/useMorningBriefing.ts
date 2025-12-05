@@ -11,6 +11,16 @@ import {
   generateFallbackBriefing,
 } from "../services/briefingService";
 import { BRIEFING_CACHE_KEY, BRIEFING_CACHE_DURATION } from "../constants";
+import {
+  type SupportedLanguage,
+  loadLanguagePreference,
+} from "@/services/language";
+import {
+  speakWithFallback,
+  stopAllSpeech,
+  loadTTSEnginePreference,
+  type TTSEngine,
+} from "@/services/textToSpeech";
 
 interface CachedBriefing {
   script: BriefingScript;
@@ -20,6 +30,7 @@ interface CachedBriefing {
   userName: string;
   medicationCount: number;
   timeOfDay: "morning" | "afternoon" | "evening";
+  language: SupportedLanguage;
 }
 
 /**
@@ -52,8 +63,12 @@ interface UseMorningBriefingResult {
 
 export function useMorningBriefing(
   userName: string,
-  medications: Medication[]
+  medications: Medication[],
+  languageOverride?: SupportedLanguage
 ): UseMorningBriefingResult {
+  // Get language from override or user preference
+  const language = languageOverride || loadLanguagePreference();
+
   // State
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [script, setScript] = useState<BriefingScript | null>(null);
@@ -70,6 +85,8 @@ export function useMorningBriefing(
   const speechSynthRef = useRef<SpeechSynthesisUtterance | null>(null);
   const hasTriedGenerating = useRef(false);
   const isPlayingRef = useRef(false); // Prevent double-play
+  const hasCompletedRef = useRef(false); // Prevent looping - track if played to completion
+  const hasFallenBackRef = useRef(false); // Prevent multiple fallbacks causing double audio
 
   /**
    * Check if cached briefing is still valid
@@ -108,12 +125,23 @@ export function useMorningBriefing(
         return null;
       }
 
-      console.log(`✅ Using cached ${data.timeOfDay} briefing`);
+      // Check if language changed
+      if (data.language !== language) {
+        console.log(
+          `🗑️ Language changed from ${data.language} to ${language}, clearing cache...`
+        );
+        localStorage.removeItem(BRIEFING_CACHE_KEY);
+        return null;
+      }
+
+      console.log(
+        `✅ Using cached ${data.timeOfDay} briefing (${data.language})`
+      );
       return data;
     } catch {
       return null;
     }
-  }, [userName, medications.length]);
+  }, [userName, medications.length, language]);
 
   /**
    * Save briefing to cache
@@ -133,14 +161,15 @@ export function useMorningBriefing(
           userName,
           medicationCount: medications.length,
           timeOfDay: getTimeOfDay(),
+          language,
         };
         localStorage.setItem(BRIEFING_CACHE_KEY, JSON.stringify(data));
-        console.log(`💾 Cached ${data.timeOfDay} briefing`);
+        console.log(`💾 Cached ${data.timeOfDay} briefing (${language})`);
       } catch {
         // Ignore storage errors
       }
     },
-    [userName, medications.length]
+    [userName, medications.length, language]
   );
 
   /**
@@ -151,8 +180,8 @@ export function useMorningBriefing(
       clearInterval(progressIntervalRef.current);
       progressIntervalRef.current = null;
     }
-    // Cancel speech synthesis
-    window.speechSynthesis.cancel();
+    // Stop all TTS (both OpenAI and browser)
+    stopAllSpeech();
     speechSynthRef.current = null;
 
     if (audioRef.current) {
@@ -199,25 +228,33 @@ export function useMorningBriefing(
       // Generate briefing script and audio
       try {
         const { script: briefingScript, audioUrl: url } =
-          await generateMorningBriefing(userName, weatherData, medications);
+          await generateMorningBriefing(
+            userName,
+            weatherData,
+            medications,
+            language
+          );
 
         setScript(briefingScript);
         setAudioUrl(url);
         cacheBriefing(briefingScript, url, weatherData);
         setStatus("ready");
         hasTriedGenerating.current = false; // Reset for next time
+        hasCompletedRef.current = false; // Reset completion flag for new briefing
       } catch (apiError) {
         // Fall back to local generation without TTS
         console.warn("API briefing generation failed:", apiError);
         const fallbackText = generateFallbackBriefing(
           userName,
           weatherData,
-          medications
+          medications,
+          language
         );
         setScript({ text: fallbackText, generatedAt: new Date() });
         setAudioUrl(null); // Ensure no audio URL - will use speech synthesis
         setStatus("ready");
         hasTriedGenerating.current = false; // Reset for next time
+        hasCompletedRef.current = false; // Reset completion flag for new briefing
       }
     } catch (err) {
       const errorMessage =
@@ -225,7 +262,7 @@ export function useMorningBriefing(
       setError(errorMessage);
       setStatus("error");
     }
-  }, [userName, medications, getCachedBriefing, cacheBriefing]);
+  }, [userName, medications, getCachedBriefing, cacheBriefing, language]);
 
   /**
    * Update progress during playback
@@ -245,188 +282,93 @@ export function useMorningBriefing(
   }, []);
 
   /**
-   * Get available voices (with retry for async loading)
+   * Play using the shared TTS service (same as chat)
+   * Uses speakWithFallback which supports both OpenAI and browser TTS
    */
-  const getVoices = useCallback((): Promise<SpeechSynthesisVoice[]> => {
-    return new Promise((resolve) => {
-      const voices = window.speechSynthesis.getVoices();
-      if (voices.length > 0) {
-        resolve(voices);
-        return;
-      }
-
-      // Voices load asynchronously - wait for them
-      const onVoicesChanged = () => {
-        window.speechSynthesis.removeEventListener(
-          "voiceschanged",
-          onVoicesChanged
-        );
-        resolve(window.speechSynthesis.getVoices());
-      };
-      window.speechSynthesis.addEventListener("voiceschanged", onVoicesChanged);
-
-      // Timeout after 2 seconds
-      setTimeout(() => {
-        window.speechSynthesis.removeEventListener(
-          "voiceschanged",
-          onVoicesChanged
-        );
-        resolve(window.speechSynthesis.getVoices());
-      }, 2000);
-    });
-  }, []);
-
-  /**
-   * Play using browser's Speech Synthesis API (fallback)
-   */
-  const playWithSpeechSynthesis = useCallback(
+  const playWithTTSService = useCallback(
     async (text: string) => {
-      // Check if speech synthesis is supported
-      if (!("speechSynthesis" in window)) {
-        console.error("Speech synthesis not supported");
-        setError("Speech synthesis is not supported in this browser");
-        setStatus("error");
-        return;
-      }
-
       try {
-        // Cancel any existing speech
-        window.speechSynthesis.cancel();
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 0.9; // Slightly slower for clarity
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
-        utterance.lang = "en-US";
-
-        // Wait for voices to load and try to find a warm female voice
-        const voices = await getVoices();
-        console.log(
-          "Available voices:",
-          voices.length,
-          voices.map((v) => v.name)
-        );
-
-        if (voices.length > 0) {
-          // Prioritize warm female voices for the "Health Radio" experience
-          // Order of preference: Zira (warm), Samantha (Mac), other female voices, then any English voice
-          const femaleVoiceNames = [
-            "zira", // Microsoft Zira - warm female voice (Windows)
-            "samantha", // Samantha - natural female voice (Mac)
-            "karen", // Karen - Australian female (Mac)
-            "victoria", // Victoria - female (Mac)
-            "susan", // Susan - female
-            "hazel", // Hazel - UK female
-            "linda", // Linda - female
-            "female", // Any voice with 'female' in name
-            "woman", // Any voice with 'woman' in name
-            "fiona", // Fiona - Scottish female
-            "moira", // Moira - Irish female
-            "tessa", // Tessa - South African female
-            "veena", // Veena - Indian female
-            "google us english", // Google's female voice
-          ];
-
-          // Find the best female voice
-          let preferredVoice: SpeechSynthesisVoice | undefined;
-
-          for (const voiceName of femaleVoiceNames) {
-            preferredVoice = voices.find(
-              (v) =>
-                v.lang.startsWith("en") &&
-                v.name.toLowerCase().includes(voiceName)
-            );
-            if (preferredVoice) break;
-          }
-
-          // Fallback to any English voice, but avoid male voices if possible
-          if (!preferredVoice) {
-            const englishVoices = voices.filter((v) => v.lang.startsWith("en"));
-            // Try to avoid David, Mark, James, etc. (common male voice names)
-            const maleNames = [
-              "david",
-              "mark",
-              "james",
-              "george",
-              "richard",
-              "daniel",
-              "alex",
-            ];
-            preferredVoice =
-              englishVoices.find(
-                (v) =>
-                  !maleNames.some((male) => v.name.toLowerCase().includes(male))
-              ) ||
-              englishVoices[0] ||
-              voices[0];
-          }
-
-          if (preferredVoice) {
-            utterance.voice = preferredVoice;
-            console.log("Using voice:", preferredVoice.name);
-          }
+        // Stop any existing speech AND audio elements
+        stopAllSpeech();
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.currentTime = 0;
         }
 
-        // Estimate duration (~150 words per minute at 0.9 rate)
+        // Get TTS engine preference (same as chat)
+        const engine: TTSEngine = loadTTSEnginePreference();
+        console.log(`📻 Loading briefing with ${engine} TTS in ${language}`);
+
+        // Estimate duration (~150 words per minute)
         const wordCount = text.split(/\s+/).length;
-        const estimatedDuration = Math.max(((wordCount / 150) * 60) / 0.9, 5);
+        const estimatedDuration = Math.max((wordCount / 150) * 60, 5);
         setDuration(estimatedDuration);
 
-        // Track progress
-        const startTime = Date.now();
-        progressIntervalRef.current = window.setInterval(() => {
-          const elapsed = (Date.now() - startTime) / 1000;
-          const currentProgress = Math.min(
-            (elapsed / estimatedDuration) * 100,
-            99
-          );
-          setProgress(currentProgress);
-        }, 100);
+        setUsingSpeechSynthesis(engine === "browser");
+        // Keep status as "loading" until audio actually starts
+        setStatus("loading");
 
-        utterance.onstart = () => {
-          console.log("Speech started");
-          setStatus("playing");
-        };
+        let startTime: number | null = null;
 
-        utterance.onend = () => {
-          console.log("Speech ended");
-          isPlayingRef.current = false;
-          setStatus("ready");
-          setProgress(100);
-          if (progressIntervalRef.current) {
-            clearInterval(progressIntervalRef.current);
-            progressIntervalRef.current = null;
-          }
-        };
+        // Use the same TTS service as the chat
+        await speakWithFallback(text, language, {
+          engine,
+          speed: 0.95, // Slightly slower for seniors
+          voice: "shimmer", // Warmest female voice for OpenAI
+          onStart: () => {
+            // Audio is now playing - start progress tracking
+            console.log(`📻 Briefing started playing`);
+            setStatus("playing");
+            startTime = Date.now();
 
-        utterance.onerror = (e) => {
-          console.error("Speech synthesis error:", e.error, e);
-          isPlayingRef.current = false;
-          // Don't show error for 'interrupted' or 'canceled' - these are expected
-          if (e.error !== "interrupted" && e.error !== "canceled") {
-            setError(`Speech failed: ${e.error || "Unknown error"}`);
-            setStatus("error");
-          }
-          if (progressIntervalRef.current) {
-            clearInterval(progressIntervalRef.current);
-            progressIntervalRef.current = null;
-          }
-        };
+            // Track progress during playback
+            progressIntervalRef.current = window.setInterval(() => {
+              if (startTime) {
+                const elapsed = (Date.now() - startTime) / 1000;
+                const currentProgress = Math.min(
+                  (elapsed / estimatedDuration) * 100,
+                  99
+                );
+                setProgress(currentProgress);
+              }
+            }, 100);
+          },
+        });
 
-        speechSynthRef.current = utterance;
-        setUsingSpeechSynthesis(true);
-        setStatus("playing");
+        // Playback completed successfully
+        console.log("TTS playback completed");
+        isPlayingRef.current = false;
+        hasCompletedRef.current = true;
+        setStatus("ready");
+        setProgress(100);
 
-        // Small delay to ensure UI updates before speech starts
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        window.speechSynthesis.speak(utterance);
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
       } catch (err) {
-        console.error("Speech synthesis setup error:", err);
-        setError("Failed to initialize speech");
-        setStatus("error");
+        console.error("TTS playback error:", err);
+        isPlayingRef.current = false;
+
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+
+        // Don't show error for interruption
+        const errorMessage = err instanceof Error ? err.message : "TTS failed";
+        if (
+          !errorMessage.includes("interrupted") &&
+          !errorMessage.includes("canceled")
+        ) {
+          setError(`Playback failed: ${errorMessage}`);
+          setStatus("error");
+        } else {
+          setStatus("ready");
+        }
       }
     },
-    [getVoices]
+    [language]
   );
 
   /**
@@ -439,35 +381,56 @@ export function useMorningBriefing(
       return;
     }
 
-    // If we have an audio URL, use it
+    // IMPORTANT: Stop all existing audio before starting new playback
+    // This prevents the "two voices" bug
+    stopAllSpeech();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+
+    // Reset fallback flag for this play attempt
+    hasFallenBackRef.current = false;
+
+    // If we have an audio URL (from server-side OpenAI TTS), use it directly
     if (audioUrl) {
       // Create audio element if needed
       if (!audioRef.current) {
         audioRef.current = new Audio(audioUrl);
+
+        // Explicitly disable looping
+        audioRef.current.loop = false;
 
         // Set up event listeners
         audioRef.current.addEventListener("loadedmetadata", () => {
           setDuration(audioRef.current?.duration ?? 0);
         });
 
-        audioRef.current.addEventListener("ended", () => {
-          isPlayingRef.current = false;
-          setStatus("ready");
-          setProgress(100);
-          if (progressIntervalRef.current) {
-            clearInterval(progressIntervalRef.current);
-            progressIntervalRef.current = null;
-          }
-        });
+        audioRef.current.addEventListener(
+          "ended",
+          () => {
+            console.log("Audio ended - marking as completed");
+            isPlayingRef.current = false;
+            hasCompletedRef.current = true;
+            setStatus("ready");
+            setProgress(100);
+            if (progressIntervalRef.current) {
+              clearInterval(progressIntervalRef.current);
+              progressIntervalRef.current = null;
+            }
+          },
+          { once: false }
+        );
 
         audioRef.current.addEventListener("error", (e) => {
           console.error("Audio playback error:", e);
           isPlayingRef.current = false;
-          // Fallback to speech synthesis on audio error
-          if (script?.text) {
-            console.log("Falling back to speech synthesis...");
-            playWithSpeechSynthesis(script.text).catch(console.error);
-          } else {
+          // Fallback to TTS service on audio error (only once)
+          if (script?.text && !hasFallenBackRef.current) {
+            hasFallenBackRef.current = true;
+            console.log("Falling back to TTS service...");
+            playWithTTSService(script.text).catch(console.error);
+          } else if (!hasFallenBackRef.current) {
             setError("Failed to play audio");
             setStatus("error");
           }
@@ -484,11 +447,12 @@ export function useMorningBriefing(
         .catch((err) => {
           console.error("Play failed:", err);
           isPlayingRef.current = false;
-          // Fallback to speech synthesis
-          if (script?.text) {
-            console.log("Falling back to speech synthesis...");
-            playWithSpeechSynthesis(script.text).catch(console.error);
-          } else {
+          // Fallback to TTS service (only if not already fallen back)
+          if (script?.text && !hasFallenBackRef.current) {
+            hasFallenBackRef.current = true;
+            console.log("Falling back to TTS service...");
+            playWithTTSService(script.text).catch(console.error);
+          } else if (!hasFallenBackRef.current) {
             setError("Failed to start playback");
             setStatus("error");
           }
@@ -496,11 +460,12 @@ export function useMorningBriefing(
       return;
     }
 
-    // No audio URL - use speech synthesis if we have a script
+    // No audio URL - use the TTS service (same as chat) if we have a script
     if (script?.text) {
       isPlayingRef.current = true;
-      playWithSpeechSynthesis(script.text).catch((err) => {
-        console.error("Speech synthesis failed:", err);
+      setStatus("loading"); // Show loading while TTS prepares
+      playWithTTSService(script.text).catch((err) => {
+        console.error("TTS service failed:", err);
         isPlayingRef.current = false;
       });
       return;
@@ -524,7 +489,7 @@ export function useMorningBriefing(
     script,
     generateBriefing,
     startProgressTracking,
-    playWithSpeechSynthesis,
+    playWithTTSService,
   ]);
 
   /**
@@ -533,7 +498,10 @@ export function useMorningBriefing(
   const pause = useCallback(() => {
     isPlayingRef.current = false;
     if (usingSpeechSynthesis) {
-      window.speechSynthesis.pause();
+      // Browser speech synthesis supports pause
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.pause();
+      }
     } else if (audioRef.current) {
       audioRef.current.pause();
     }
@@ -549,9 +517,9 @@ export function useMorningBriefing(
    */
   const stop = useCallback(() => {
     isPlayingRef.current = false;
-    if (usingSpeechSynthesis) {
-      window.speechSynthesis.cancel();
-    } else if (audioRef.current) {
+    // Stop all TTS (both OpenAI and browser)
+    stopAllSpeech();
+    if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
@@ -561,7 +529,7 @@ export function useMorningBriefing(
       clearInterval(progressIntervalRef.current);
       progressIntervalRef.current = null;
     }
-  }, [usingSpeechSynthesis]);
+  }, []);
 
   /**
    * Replay from the beginning
@@ -569,17 +537,24 @@ export function useMorningBriefing(
   const replay = useCallback(() => {
     // Stop current playback first
     isPlayingRef.current = false;
-    if (usingSpeechSynthesis) {
-      window.speechSynthesis.cancel();
-    } else if (audioRef.current) {
+    hasCompletedRef.current = false; // Reset completion flag for replay
+    hasFallenBackRef.current = false; // Reset fallback flag for replay
+    stopAllSpeech();
+    if (audioRef.current) {
+      audioRef.current.pause();
       audioRef.current.currentTime = 0;
     }
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
     setProgress(0);
+    setStatus("ready"); // Reset to ready state before playing
     // Small delay to ensure cleanup before replay
     setTimeout(() => {
       play();
-    }, 50);
-  }, [play, usingSpeechSynthesis]);
+    }, 100);
+  }, [play]);
 
   // Auto-generate briefing on mount
   useEffect(() => {

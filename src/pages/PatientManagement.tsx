@@ -53,8 +53,8 @@ export default function PatientManagement() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-muted-foreground">Loading patient data...</p>
+          <Loader2 className="w-10 h-10 animate-spin mx-auto mb-4 text-primary" />
+          <p className="text-lg text-muted-foreground">Getting information...</p>
         </div>
       </div>
     );
@@ -65,15 +65,15 @@ export default function PatientManagement() {
     return (
       <div className="min-h-screen bg-background pb-24">
         <div className="p-4 text-center mt-20">
-          <h2 className="text-senior-xl font-bold mb-2">Patient Not Found</h2>
-          <p className="text-muted-foreground mb-6">
-            This patient may not be linked to your account or the link is pending approval.
+          <h2 className="text-senior-xl font-bold mb-2">Person Not Found</h2>
+          <p className="text-lg text-muted-foreground mb-6">
+            We can't find this person. They may not be connected to your account yet.
           </p>
           <button
             onClick={() => navigate("/companion")}
-            className="text-primary font-semibold"
+            className="text-primary font-semibold text-lg"
           >
-            ← Back to Dashboard
+            ← Go Back
           </button>
         </div>
         <Navigation />
@@ -82,7 +82,7 @@ export default function PatientManagement() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-24 lg:pb-8 lg:ml-20 xl:ml-24">
       <div className="p-4">
         <PatientDetailView
           patient={patientWithRealtimeMeds}

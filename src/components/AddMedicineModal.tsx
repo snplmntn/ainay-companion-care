@@ -11,12 +11,14 @@ import {
   Pill,
   Upload,
   ChevronDown,
+  ChevronRight,
   AlertTriangle,
   AlertOctagon,
   Info,
   Stethoscope,
   Loader2,
   Clock,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,9 +34,7 @@ import {
 import { searchDrugs, type Drug } from "@/services/drugDatabase";
 import {
   checkDrugInteractions,
-  getSeverityColor,
   type DetectedInteraction,
-  type InteractionSeverity,
 } from "@/modules/medication/services/interactionService";
 import { createMedicationSchedule, generateId as generateScheduleId } from "@/modules/medication/services/scheduleService";
 import { TIME_PERIOD_OPTIONS, calculateEndDate, getTodayDateString } from "@/modules/medication/constants";
@@ -190,6 +190,7 @@ export function AddMedicineModal({ isOpen, onClose }: Props) {
   const [detectedInteractions, setDetectedInteractions] = useState<
     MedicineInteraction[]
   >([]);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Drug autocomplete
   const [drugSuggestions, setDrugSuggestions] = useState<Drug[]>([]);
@@ -1041,6 +1042,10 @@ export function AddMedicineModal({ isOpen, onClose }: Props) {
 
   // Actually save the medicines (after interaction check or user confirmation)
   const doSaveMedicines = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    
+    try {
     for (const medicine of medicineQueue) {
       // Convert time to 24-hour format for schedule calculation
       const startTime24h = convertTo24Hour(medicine.time);
@@ -1097,6 +1102,9 @@ export function AddMedicineModal({ isOpen, onClose }: Props) {
     setShowInteractionWarning(false);
     setDetectedInteractions([]);
     onClose();
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Save all medicines (with interaction check)
@@ -1861,11 +1869,20 @@ export function AddMedicineModal({ isOpen, onClose }: Props) {
                 size="lg"
                 className="w-full mt-6"
                 onClick={handleSaveAll}
-                disabled={isProcessing || isListening}
+                disabled={isProcessing || isListening || isSaving || isCheckingInteractions}
               >
-                <Check className="w-6 h-6 mr-2" />
-                Save {medicineQueue.length} Medicine
-                {medicineQueue.length > 1 ? "s" : ""}
+                {isSaving || isCheckingInteractions ? (
+                  <>
+                    <Loader2 className="w-6 h-6 mr-2 animate-spin" />
+                    {isCheckingInteractions ? "Checking..." : "Saving..."}
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-6 h-6 mr-2" />
+                    Save {medicineQueue.length} Medicine
+                    {medicineQueue.length > 1 ? "s" : ""}
+                  </>
+                )}
               </Button>
             )}
           </div>
@@ -1973,19 +1990,25 @@ export function AddMedicineModal({ isOpen, onClose }: Props) {
 
       {/* Interaction Warning Modal */}
       {showInteractionWarning && (
-        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-background w-full max-w-lg rounded-2xl max-h-[85vh] overflow-hidden flex flex-col">
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-border bg-gradient-to-r from-red-50 to-amber-50 dark:from-red-950/30 dark:to-amber-950/30">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center">
-                  <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-background w-full max-w-lg rounded-3xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl shadow-primary/20 border-2 border-primary/20">
+            {/* Branded Header with Coral Gradient */}
+            <div className="relative px-6 py-6 bg-gradient-to-br from-primary via-primary to-[hsl(16_100%_72%)] overflow-hidden">
+              {/* Decorative Pattern */}
+              <div className="absolute inset-0 opacity-10">
+                <div className="absolute -top-4 -right-4 w-32 h-32 rounded-full border-4 border-white"></div>
+                <div className="absolute -bottom-8 -left-8 w-40 h-40 rounded-full border-4 border-white"></div>
+              </div>
+              
+              <div className="relative flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30">
+                  <AlertTriangle className="w-7 h-7 text-white" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-lg text-red-700 dark:text-red-400">
+                  <h3 className="font-bold text-xl text-white">
                     Drug Interactions Detected
                   </h3>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-white/90">
                     {detectedInteractions.length} medicine
                     {detectedInteractions.length > 1 ? "s have" : " has"}{" "}
                     potential interactions
@@ -1994,15 +2017,18 @@ export function AddMedicineModal({ isOpen, onClose }: Props) {
               </div>
             </div>
 
-            {/* Doctor Recommendation */}
-            <div className="px-6 py-3 bg-primary/5 border-b border-border">
-              <div className="flex items-center gap-3">
-                <Stethoscope className="w-5 h-5 text-primary shrink-0" />
-                <p className="text-sm">
-                  <span className="font-semibold">Recommendation:</span> Consult
-                  your doctor or pharmacist before taking these medicines
-                  together.
-                </p>
+            {/* Doctor Recommendation - Teal Themed */}
+            <div className="px-6 py-4 bg-gradient-to-r from-secondary/10 to-teal-light/50 dark:from-secondary/20 dark:to-secondary/10 border-b border-secondary/20">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-secondary/20 flex items-center justify-center shrink-0">
+                  <Stethoscope className="w-6 h-6 text-secondary" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-secondary">Recommendation</p>
+                  <p className="text-sm text-muted-foreground">
+                    Consult your doctor or pharmacist before taking these medicines together.
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -2010,43 +2036,60 @@ export function AddMedicineModal({ isOpen, onClose }: Props) {
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {detectedInteractions.map((item, idx) => (
                 <div key={idx} className="space-y-3">
-                  <h4 className="font-semibold flex items-center gap-2">
-                    <Pill className="w-4 h-4 text-primary" />
+                  <h4 className="font-bold flex items-center gap-2 text-lg">
+                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <Pill className="w-4 h-4 text-primary" />
+                    </div>
                     {item.medicineName}
                   </h4>
                   {item.interactions.map((interaction, iIdx) => {
-                    const colors = getSeverityColor(interaction.severity);
+                    const isMajor = interaction.severity === "Major";
+                    const isModerate = interaction.severity === "Moderate";
                     return (
                       <div
                         key={iIdx}
-                        className={`p-4 rounded-xl border ${colors.border} ${colors.bg}`}
+                        className={`p-4 rounded-2xl border-2 ${
+                          isMajor 
+                            ? "border-primary/30 bg-primary/5" 
+                            : isModerate 
+                            ? "border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30"
+                            : "border-secondary/30 bg-secondary/5"
+                        }`}
                       >
-                        <div className="flex items-center gap-2 mb-2">
-                          {interaction.severity === "Major" ? (
-                            <AlertOctagon
-                              className={`w-5 h-5 ${colors.icon}`}
-                            />
-                          ) : interaction.severity === "Moderate" ? (
-                            <AlertTriangle
-                              className={`w-5 h-5 ${colors.icon}`}
-                            />
+                        <div className="flex items-center gap-2 mb-3">
+                          {isMajor ? (
+                            <AlertOctagon className="w-5 h-5 text-primary" />
+                          ) : isModerate ? (
+                            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                           ) : (
-                            <Info className={`w-5 h-5 ${colors.icon}`} />
+                            <Info className="w-5 h-5 text-secondary" />
                           )}
-                          <span className={`font-semibold ${colors.text}`}>
-                            {interaction.severity} interaction with{" "}
+                          <span className={`font-bold ${
+                            isMajor ? "text-primary" : isModerate ? "text-amber-700 dark:text-amber-400" : "text-secondary"
+                          }`}>
+                            {interaction.severity} interaction
+                          </span>
+                          <span className={`ml-auto px-2.5 py-1 rounded-full text-xs font-bold uppercase ${
+                            isMajor 
+                              ? "bg-primary text-white" 
+                              : isModerate 
+                              ? "bg-amber-500 text-white"
+                              : "bg-secondary text-white"
+                          }`}>
                             {interaction.currentMedication}
                           </span>
                         </div>
-                        <p className="text-sm mb-2">
+                        <p className="text-sm mb-3 leading-relaxed">
                           {interaction.clinicalEffect}
                         </p>
                         {interaction.saferAlternative && (
-                          <div className="text-sm bg-green-50 dark:bg-green-950/30 p-2 rounded-lg border border-green-200 dark:border-green-800">
-                            <span className="font-semibold text-green-700 dark:text-green-400">
+                          <div className="text-sm bg-secondary/10 p-3 rounded-xl border border-secondary/30">
+                            <span className="font-bold text-secondary">
                               Safer alternative:
                             </span>{" "}
-                            {interaction.saferAlternative}
+                            <span className="text-foreground">
+                              {interaction.saferAlternative}
+                            </span>
                           </div>
                         )}
                       </div>
@@ -2057,9 +2100,9 @@ export function AddMedicineModal({ isOpen, onClose }: Props) {
             </div>
 
             {/* Actions */}
-            <div className="px-6 py-4 border-t border-border space-y-3">
+            <div className="px-6 py-5 border-t-2 border-border/50 space-y-3 bg-muted/30">
               <Button
-                variant="outline"
+                variant="teal"
                 size="lg"
                 className="w-full"
                 onClick={() => {
@@ -2067,19 +2110,34 @@ export function AddMedicineModal({ isOpen, onClose }: Props) {
                   setDetectedInteractions([]);
                 }}
               >
+                <ArrowLeft className="w-5 h-5 mr-2" />
                 Go Back & Review
               </Button>
               <Button
-                variant="destructive"
+                variant="outline"
                 size="lg"
-                className="w-full"
+                className="w-full border-2 border-primary/50 text-primary hover:bg-primary/10"
                 onClick={() => void doSaveMedicines()}
+                disabled={isSaving}
               >
-                I Understand, Save Anyway
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <ChevronRight className="w-5 h-5 mr-2" />
+                    I Understand, Save Anyway
+                  </>
+                )}
               </Button>
-              <p className="text-xs text-center text-muted-foreground">
-                ⚠️ Proceeding without medical consultation is not recommended
-              </p>
+              <div className="flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-primary/5 border border-primary/20">
+                <AlertTriangle className="w-4 h-4 text-primary shrink-0" />
+                <p className="text-xs text-primary font-medium">
+                  Medical consultation recommended before proceeding
+                </p>
+              </div>
             </div>
           </div>
         </div>

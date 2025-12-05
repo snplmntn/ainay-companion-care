@@ -67,16 +67,24 @@ export const TIME_PERIOD_OPTIONS: {
   label: string;
   days: number | null; // null for ongoing
 }[] = [
+  { value: "1", label: "1 day", days: 1 },
+  { value: "2", label: "2 days", days: 2 },
   { value: "3", label: "3 days", days: 3 },
+  { value: "4", label: "4 days", days: 4 },
   { value: "5", label: "5 days", days: 5 },
+  { value: "6", label: "6 days", days: 6 },
   { value: "7", label: "7 days (1 week)", days: 7 },
   { value: "10", label: "10 days", days: 10 },
   { value: "14", label: "14 days (2 weeks)", days: 14 },
   { value: "21", label: "21 days (3 weeks)", days: 21 },
+  { value: "28", label: "28 days (4 weeks)", days: 28 },
   { value: "30", label: "30 days (1 month)", days: 30 },
+  { value: "45", label: "45 days (1.5 months)", days: 45 },
   { value: "60", label: "60 days (2 months)", days: 60 },
   { value: "90", label: "90 days (3 months)", days: 90 },
+  { value: "120", label: "120 days (4 months)", days: 120 },
   { value: "180", label: "180 days (6 months)", days: 180 },
+  { value: "270", label: "270 days (9 months)", days: 270 },
   { value: "365", label: "365 days (1 year)", days: 365 },
   { value: "ongoing", label: "Ongoing (no end date)", days: null },
 ];

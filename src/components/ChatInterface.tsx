@@ -156,9 +156,27 @@ const isMedicineDuplicate = (
   return { isDuplicate: false };
 };
 
+// Helper to check if a medication is truly taken (considering doses)
+function isMedicationTaken(med: {
+  taken: boolean;
+  doses?: Array<{ taken: boolean }>;
+}): boolean {
+  // If medication has doses, check if ALL doses are taken
+  if (med.doses && med.doses.length > 0) {
+    return med.doses.every((d) => d.taken);
+  }
+  // Single-dose medication: check the medication's taken status
+  return med.taken;
+}
+
 function buildInitialMessage(
   userName?: string,
-  medications?: Array<{ name: string; taken: boolean; time: string }>,
+  medications?: Array<{
+    name: string;
+    taken: boolean;
+    time: string;
+    doses?: Array<{ taken: boolean }>;
+  }>,
   targetPatient?: LinkedPatient,
   linkedPatients?: LinkedPatient[],
   userRole?: string
@@ -166,12 +184,20 @@ function buildInitialMessage(
   // Companion mode - managing specific patient's medications
   if (targetPatient) {
     const patientMeds = targetPatient.medications || [];
-    const pending = patientMeds.filter((m) => !m.taken);
-    const taken = patientMeds.filter((m) => m.taken);
+    const pending = patientMeds.filter((m) => !isMedicationTaken(m));
+    const taken = patientMeds.filter((m) => isMedicationTaken(m));
 
     let medicationInfo = "";
     if (patientMeds.length > 0) {
-      if (pending.length > 0) {
+      if (pending.length === 0 && taken.length > 0) {
+        // All medications taken - congratulate!
+        medicationInfo = `\n\n✅ **Great!** ${
+          targetPatient.name
+        } has taken all ${taken.length} medication${
+          taken.length > 1 ? "s" : ""
+        } today!`;
+      } else if (pending.length > 0) {
+        // Only show PENDING medications - don't mention taken ones
         const pendingList = pending
           .slice(0, 3)
           .map((m) => `**${m.name}** at ${m.time}`)
@@ -179,17 +205,7 @@ function buildInitialMessage(
         const moreCount =
           pending.length > 3 ? ` and ${pending.length - 3} more` : "";
         medicationInfo = `\n\n💊 **${targetPatient.name}'s pending medications:** ${pendingList}${moreCount}`;
-      }
-      if (taken.length > 0 && pending.length === 0) {
-        medicationInfo = `\n\n✅ **Great!** ${
-          targetPatient.name
-        } has taken all ${taken.length} medication${
-          taken.length > 1 ? "s" : ""
-        } today!`;
-      } else if (taken.length > 0) {
-        medicationInfo += `\n✅ ${taken.length} medication${
-          taken.length > 1 ? "s" : ""
-        } already taken.`;
+        // Don't mention taken medications - avoid spamming
       }
     } else {
       medicationInfo = `\n\n📝 **Tip:** Add medications for ${targetPatient.name} using camera, voice, or by typing!`;
@@ -225,7 +241,9 @@ Medicines you add here will appear in ${
     if (activePatients.length > 0) {
       const patientsList = activePatients
         .map((p) => {
-          const pendingCount = p.medications.filter((m) => !m.taken).length;
+          const pendingCount = p.medications.filter(
+            (m) => !isMedicationTaken(m)
+          ).length;
           const status =
             pendingCount > 0 ? `⚠️ ${pendingCount} pending` : "✅ all done";
           return `**${p.name}** (${status})`;
@@ -236,7 +254,9 @@ Medicines you add here will appear in ${
 
       // Highlight patients needing attention
       const needsAttention = activePatients.filter(
-        (p) => p.adherenceRate < 70 || p.medications.some((m) => !m.taken)
+        (p) =>
+          p.adherenceRate < 70 ||
+          p.medications.some((m) => !isMedicationTaken(m))
       );
       if (needsAttention.length > 0) {
         patientSummary += `\n\n⚠️ **Needs attention:** ${needsAttention
@@ -271,27 +291,72 @@ I know about all your linked patients and their medications. You can:
 
   let medicationInfo = "";
   if (medications && medications.length > 0) {
-    const pending = medications.filter((m) => !m.taken);
-    const taken = medications.filter((m) => m.taken);
+    // Calculate DOSE-level stats
+    let totalDoses = 0;
+    let takenDoses = 0;
+    const pendingDosesList: Array<{
+      name: string;
+      time: string;
+      label?: string;
+    }> = [];
 
-    if (pending.length > 0) {
-      const pendingList = pending
+    medications.forEach((m) => {
+      if (m.doses && m.doses.length > 0) {
+        totalDoses += m.doses.length;
+        m.doses.forEach((d) => {
+          if (d.taken) {
+            takenDoses++;
+          } else {
+            pendingDosesList.push({
+              name: m.name,
+              time: d.time,
+              label: d.label,
+            });
+          }
+        });
+      } else {
+        totalDoses++;
+        if (m.taken) {
+          takenDoses++;
+        } else {
+          pendingDosesList.push({ name: m.name, time: m.time });
+        }
+      }
+    });
+
+    // Sort pending doses by time
+    pendingDosesList.sort((a, b) => {
+      const timeA = a.time.replace(/(\d+):(\d+)\s*(AM|PM)?/i, (_, h, m, p) => {
+        let hour = parseInt(h);
+        if (p?.toUpperCase() === "PM" && hour !== 12) hour += 12;
+        if (p?.toUpperCase() === "AM" && hour === 12) hour = 0;
+        return `${hour.toString().padStart(2, "0")}:${m}`;
+      });
+      const timeB = b.time.replace(/(\d+):(\d+)\s*(AM|PM)?/i, (_, h, m, p) => {
+        let hour = parseInt(h);
+        if (p?.toUpperCase() === "PM" && hour !== 12) hour += 12;
+        if (p?.toUpperCase() === "AM" && hour === 12) hour = 0;
+        return `${hour.toString().padStart(2, "0")}:${m}`;
+      });
+      return timeA.localeCompare(timeB);
+    });
+
+    if (pendingDosesList.length === 0 && takenDoses > 0) {
+      // All doses taken - congratulate!
+      medicationInfo = `\n\n✅ **Great job!** You've taken all ${takenDoses} dose${
+        takenDoses > 1 ? "s" : ""
+      } today!`;
+    } else if (pendingDosesList.length > 0) {
+      // Show next PENDING DOSES with their actual times
+      const pendingList = pendingDosesList
         .slice(0, 3)
-        .map((m) => `**${m.name}** at ${m.time}`)
+        .map((d) => `**${d.name}** at ${d.time}`)
         .join(", ");
       const moreCount =
-        pending.length > 3 ? ` and ${pending.length - 3} more` : "";
-      medicationInfo = `\n\n💊 **Pending medications today:** ${pendingList}${moreCount}`;
-    }
-
-    if (taken.length > 0 && pending.length === 0) {
-      medicationInfo = `\n\n✅ **Great job!** You've taken all ${
-        taken.length
-      } medication${taken.length > 1 ? "s" : ""} today!`;
-    } else if (taken.length > 0) {
-      medicationInfo += `\n✅ ${taken.length} medication${
-        taken.length > 1 ? "s" : ""
-      } already taken.`;
+        pendingDosesList.length > 3
+          ? ` and ${pendingDosesList.length - 3} more`
+          : "";
+      medicationInfo = `\n\n💊 **Pending doses today:** ${pendingList}${moreCount}`;
     }
   } else {
     medicationInfo =
@@ -348,7 +413,7 @@ export function ChatInterface({
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(
     null
   );
-  const [isTTSLoading, setIsTTSLoading] = useState(false);
+  const [loadingMessageId, setLoadingMessageId] = useState<string | null>(null);
 
   // Handle TTS engine change
   const handleTTSEngineChange = (engine: TTSEngine) => {
@@ -379,6 +444,14 @@ export function ChatInterface({
               time: med.time,
               taken: med.taken,
               instructions: med.instructions,
+              frequency: med.frequency,
+              // Include dose-level taken status for multi-dose medications
+              doses: med.doses?.map((dose) => ({
+                time: dose.time,
+                label: dose.label,
+                taken: dose.taken,
+                takenAt: dose.takenAt,
+              })),
             })),
           }))
       : undefined;
@@ -394,6 +467,14 @@ export function ChatInterface({
       time: med.time,
       taken: med.taken,
       instructions: med.instructions,
+      frequency: med.frequency,
+      // Include dose-level taken status for multi-dose medications
+      doses: med.doses?.map((dose) => ({
+        time: dose.time,
+        label: dose.label,
+        taken: dose.taken,
+        takenAt: dose.takenAt,
+      })),
     })),
     linkedPatients: linkedPatientsContext,
   };
@@ -720,7 +801,10 @@ export function ChatInterface({
         if (audioBlob.size > 0) {
           setIsProcessingVoice(true);
           try {
-            const transcribedText = await transcribeAudio(audioBlob);
+            // Pass user's selected language so Whisper transcribes in the correct language
+            const transcribedText = await transcribeAudio(audioBlob, {
+              language,
+            });
             if (transcribedText) {
               // Send instantly without waiting for user confirmation
               await sendMessage(transcribedText);
@@ -994,16 +1078,26 @@ export function ChatInterface({
       return;
     }
 
+    // If already loading this message, ignore
+    if (loadingMessageId === messageId) {
+      return;
+    }
+
     // Stop any current speech
     stopAllSpeech();
-    setSpeakingMessageId(messageId);
-    setIsTTSLoading(true);
+    setSpeakingMessageId(null);
+    setLoadingMessageId(messageId); // Show loading state
 
     try {
       await speakWithFallback(text, language, {
         engine: ttsEngine,
         speed: 0.95,
         voice: "shimmer", // Warmest female voice for OpenAI
+        onStart: () => {
+          // Audio is ready and starting to play
+          setLoadingMessageId(null);
+          setSpeakingMessageId(messageId);
+        },
       });
     } catch (error) {
       console.error("TTS failed:", error);
@@ -1014,7 +1108,7 @@ export function ChatInterface({
       });
     } finally {
       setSpeakingMessageId(null);
-      setIsTTSLoading(false);
+      setLoadingMessageId(null);
     }
   };
 
@@ -1064,57 +1158,55 @@ export function ChatInterface({
         </div>
       )}
 
-      {/* Language & TTS Settings Header */}
-      <div className="px-4 py-2 border-b border-border bg-muted/30 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          {/* Language Selector */}
-          <div className="flex items-center gap-2">
-            <Languages className="w-4 h-4 text-muted-foreground" />
-            <Select
-              value={language}
-              onValueChange={(val) =>
-                handleLanguageChange(val as SupportedLanguage)
-              }
-            >
-              <SelectTrigger className="w-[160px] h-8 text-sm">
-                <SelectValue placeholder="Language" />
-              </SelectTrigger>
-              <SelectContent>
-                {getLanguageOptions().map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+      {/* Language & TTS Settings Header - Compact */}
+      <div className="px-3 py-2 border-b border-border bg-muted/30 flex items-center justify-between gap-2">
+        {/* Language Selector */}
+        <div className="flex items-center gap-1.5">
+          <Languages className="w-4 h-4 text-muted-foreground shrink-0" />
+          <Select
+            value={language}
+            onValueChange={(val) =>
+              handleLanguageChange(val as SupportedLanguage)
+            }
+          >
+            <SelectTrigger className="w-[130px] sm:w-[150px] h-8 text-sm">
+              <SelectValue placeholder="Language" />
+            </SelectTrigger>
+            <SelectContent>
+              {getLanguageOptions().map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
-        {/* TTS Engine Toggle */}
-        <div className="flex items-center gap-2">
-          <Volume2 className="w-4 h-4 text-muted-foreground" />
-          <div className="flex rounded-lg border border-border overflow-hidden">
+        {/* TTS Engine Toggle - More compact */}
+        <div className="flex items-center gap-1.5">
+          <Volume2 className="w-4 h-4 text-muted-foreground shrink-0 hidden sm:block" />
+          <div className="flex rounded-md border border-border overflow-hidden">
             <button
               onClick={() => handleTTSEngineChange("browser")}
-              className={`px-3 py-1 text-xs font-medium transition-colors ${
+              className={`px-2 sm:px-3 py-1 text-xs font-medium transition-colors ${
                 ttsEngine === "browser"
                   ? "bg-primary text-primary-foreground"
                   : "bg-background text-muted-foreground hover:bg-muted"
               }`}
-              title="Instant playback using your browser's voice"
+              title="Fast browser voice"
             >
-              ⚡ Fast
+              ⚡ <span className="hidden sm:inline">Fast</span>
             </button>
             <button
               onClick={() => handleTTSEngineChange("openai")}
-              className={`px-3 py-1 text-xs font-medium transition-colors ${
+              className={`px-2 sm:px-3 py-1 text-xs font-medium transition-colors ${
                 ttsEngine === "openai"
                   ? "bg-primary text-primary-foreground"
                   : "bg-background text-muted-foreground hover:bg-muted"
               }`}
-              title="High-quality OpenAI voice (slower, uses API)"
+              title="High-quality AI voice"
             >
-              🎵 Quality
+              🎵 <span className="hidden sm:inline">Quality</span>
             </button>
           </div>
         </div>
@@ -1176,23 +1268,29 @@ export function ChatInterface({
                     variant="ghost"
                     size="sm"
                     onClick={() => handleSpeak(message.id, message.content)}
-                    disabled={isTTSLoading && speakingMessageId !== message.id}
+                    disabled={
+                      loadingMessageId !== null ||
+                      (speakingMessageId !== null &&
+                        speakingMessageId !== message.id)
+                    }
                     className="h-8 px-2 text-muted-foreground hover:text-foreground"
                     title={
-                      speakingMessageId === message.id
+                      loadingMessageId === message.id
+                        ? "Loading audio..."
+                        : speakingMessageId === message.id
                         ? "Stop speaking"
                         : "Listen to message"
                     }
                   >
-                    {speakingMessageId === message.id ? (
-                      <>
-                        <VolumeX className="w-4 h-4 mr-1" />
-                        <span className="text-xs">Stop</span>
-                      </>
-                    ) : isTTSLoading && speakingMessageId === message.id ? (
+                    {loadingMessageId === message.id ? (
                       <>
                         <div className="w-4 h-4 mr-1 border-2 border-current border-t-transparent rounded-full animate-spin" />
                         <span className="text-xs">Loading...</span>
+                      </>
+                    ) : speakingMessageId === message.id ? (
+                      <>
+                        <VolumeX className="w-4 h-4 mr-1" />
+                        <span className="text-xs">Stop</span>
                       </>
                     ) : (
                       <>
@@ -1416,32 +1514,15 @@ export function ChatInterface({
         </div>
       )}
 
-      {/* Voice recording overlay */}
+      {/* Voice recording indicator - Inline */}
       {isRecording && (
-        <div className="px-4 py-3 border-t border-destructive bg-destructive/10">
-          <div className="flex items-center justify-center gap-3">
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 bg-destructive rounded-full animate-pulse" />
-              <span className="font-mono text-lg text-destructive font-semibold">
-                {formatDuration(recordingDuration)}
-              </span>
-            </div>
-            <div className="flex gap-1">
-              {[...Array(5)].map((_, i) => (
-                <div
-                  key={i}
-                  className="w-1 bg-destructive rounded-full animate-pulse"
-                  style={{
-                    height: `${12 + Math.random() * 16}px`,
-                    animationDelay: `${i * 0.1}s`,
-                  }}
-                />
-              ))}
-            </div>
+        <div className="px-3 py-1.5 border-t border-destructive/30 bg-destructive/5">
+          <div className="flex items-center justify-center gap-2">
+            <span className="w-2 h-2 bg-destructive rounded-full animate-pulse" />
+            <span className="text-destructive text-sm font-medium">
+              {formatDuration(recordingDuration)} - Tap mic to stop
+            </span>
           </div>
-          <p className="text-center text-destructive text-sm mt-2">
-            🎤 Recording... Tap mic to stop
-          </p>
         </div>
       )}
 
@@ -1457,20 +1538,19 @@ export function ChatInterface({
         </div>
       )}
 
-      {/* Input bar */}
-      <div className="p-4 border-t border-border bg-background">
-        <div className="flex gap-2">
+      {/* Input bar - Single compact row */}
+      <div className="px-2 py-2 border-t border-border bg-background">
+        <div className="flex items-center gap-1">
           {/* Camera button */}
           <div className="relative">
             <Button
-              variant="secondary"
-              size="icon-lg"
+              variant="ghost"
+              size="icon"
               onClick={() => {
                 if (!canUsePrescriptionScan) {
                   toast({
                     title: "Pro Feature",
-                    description:
-                      "Prescription scanning requires a Pro subscription.",
+                    description: "Prescription scanning requires Pro.",
                     action: (
                       <Button
                         variant="outline"
@@ -1486,41 +1566,34 @@ export function ChatInterface({
                 setIsCameraOpen(true);
               }}
               disabled={isTyping || isRecording}
-              className="rounded-full shrink-0"
-              title={
-                canUsePrescriptionScan
-                  ? "Scan medicine with camera"
-                  : "Pro feature - Upgrade to unlock"
-              }
+              className="h-10 w-10 rounded-full text-muted-foreground hover:text-foreground"
             >
-              <Camera className="w-6 h-6" />
+              <Camera className="w-5 h-5" />
             </Button>
             {!canUsePrescriptionScan && <LockedBadge />}
           </div>
 
-          {/* Attachment button (photos & files) */}
+          {/* Attachment button */}
           <Button
-            variant="secondary"
-            size="icon-lg"
+            variant="ghost"
+            size="icon"
             onClick={() => documentInputRef.current?.click()}
             disabled={isTyping || isRecording}
-            className="rounded-full shrink-0"
-            title="Attach photo or file"
+            className="h-10 w-10 rounded-full text-muted-foreground hover:text-foreground"
           >
-            <Paperclip className="w-6 h-6" />
+            <Paperclip className="w-5 h-5" />
           </Button>
 
           {/* Voice button */}
           <div className="relative">
             <Button
-              variant={isRecording ? "destructive" : "secondary"}
-              size="icon-lg"
+              variant={isRecording ? "destructive" : "ghost"}
+              size="icon"
               onClick={() => {
                 if (!canUseVoiceAssistance) {
                   toast({
                     title: "Pro Feature",
-                    description:
-                      "Voice assistance requires a Pro subscription.",
+                    description: "Voice assistance requires Pro.",
                     action: (
                       <Button
                         variant="outline"
@@ -1536,19 +1609,14 @@ export function ChatInterface({
                 handleVoiceInput();
               }}
               disabled={isTyping || isProcessingVoice}
-              className="rounded-full shrink-0"
-              title={
-                canUseVoiceAssistance
-                  ? isRecording
-                    ? "Stop recording"
-                    : "Voice input"
-                  : "Pro feature - Upgrade to unlock"
-              }
+              className={`h-10 w-10 rounded-full ${
+                isRecording ? "" : "text-muted-foreground hover:text-foreground"
+              }`}
             >
               {isRecording ? (
-                <MicOff className="w-6 h-6" />
+                <MicOff className="w-5 h-5" />
               ) : (
-                <Mic className="w-6 h-6" />
+                <Mic className="w-5 h-5" />
               )}
             </Button>
             {!canUseVoiceAssistance && <LockedBadge />}
@@ -1559,11 +1627,9 @@ export function ChatInterface({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
-              medicineInputs.length > 0
-                ? "Add context or just send..."
-                : "Type your question..."
+              medicineInputs.length > 0 ? "Add details..." : "Ask me..."
             }
-            className="input-senior flex-1"
+            className="flex-1 h-10 text-base px-3 rounded-full min-w-0"
             onKeyDown={handleKeyDown}
             disabled={isTyping || isRecording}
           />
@@ -1571,16 +1637,16 @@ export function ChatInterface({
           {/* Send button */}
           <Button
             variant="coral"
-            size="icon-lg"
+            size="icon"
             onClick={handleSend}
             disabled={
               (!input.trim() && medicineInputs.length === 0) ||
               isTyping ||
               isRecording
             }
-            className="rounded-full shrink-0"
+            className="h-10 w-10 rounded-full shrink-0"
           >
-            <Send className="w-6 h-6" />
+            <Send className="w-5 h-5" />
           </Button>
         </div>
       </div>

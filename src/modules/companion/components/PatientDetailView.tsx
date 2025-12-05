@@ -46,12 +46,31 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
 
   // Use realtime medications if available, otherwise fall back to initial data
   const medications = realtimeMedications.length > 0 ? realtimeMedications : patient.medications;
-  const adherenceRate = patient.adherenceRate;
   const { name, email, lastActivity } = patient;
 
-  const takenCount = medications.filter((m) => m.taken).length;
+  // Helper to check if a medication is fully taken (considering doses)
+  const isMedTaken = (med: Medication) => {
+    if (med.doses && med.doses.length > 0) {
+      return med.doses.every((d) => d.taken);
+    }
+    return med.taken;
+  };
+  
+  // Calculate DOSE-level progress (more accurate than medication count)
+  const { totalDoses, takenDoses } = medications.reduce((acc, med) => {
+    if (med.doses && med.doses.length > 0) {
+      acc.totalDoses += med.doses.length;
+      acc.takenDoses += med.doses.filter(d => d.taken).length;
+    } else {
+      acc.totalDoses += 1;
+      acc.takenDoses += med.taken ? 1 : 0;
+    }
+    return acc;
+  }, { totalDoses: 0, takenDoses: 0 });
+  
+  const takenCount = medications.filter(isMedTaken).length;
   const totalCount = medications.length;
-  const progress = totalCount > 0 ? Math.round((takenCount / totalCount) * 100) : 0;
+  const progress = totalDoses > 0 ? Math.round((takenDoses / totalDoses) * 100) : 0;
 
   // Group medications by category
   const groupedByCategory = medications.reduce((acc, med) => {
@@ -68,9 +87,56 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
     (a, b) => categoryOrder.indexOf(a) - categoryOrder.indexOf(b)
   );
 
-  // Find pending medications
-  const pendingMeds = medications.filter((m) => !m.taken);
-  const upcomingMed = pendingMeds[0];
+  // Find the NEXT PENDING DOSE (not just medication)
+  const getNextPendingDose = () => {
+    const allPendingDoses: Array<{ medName: string; dosage: string; time: string; label: string }> = [];
+    
+    medications.forEach(med => {
+      if (med.doses && med.doses.length > 0) {
+        // Multi-dose: find pending doses
+        med.doses.forEach(dose => {
+          if (!dose.taken) {
+            allPendingDoses.push({
+              medName: med.name,
+              dosage: med.dosage,
+              time: dose.time,
+              label: dose.label,
+            });
+          }
+        });
+      } else if (!med.taken) {
+        // Single dose: use medication time
+        allPendingDoses.push({
+          medName: med.name,
+          dosage: med.dosage,
+          time: med.time,
+          label: "Scheduled",
+        });
+      }
+    });
+    
+    // Sort by time to find the earliest pending dose
+    allPendingDoses.sort((a, b) => {
+      const timeA = a.time.replace(/(\d+):(\d+)\s*(AM|PM)/i, (_, h, m, p) => {
+        let hour = parseInt(h);
+        if (p.toUpperCase() === 'PM' && hour !== 12) hour += 12;
+        if (p.toUpperCase() === 'AM' && hour === 12) hour = 0;
+        return `${hour.toString().padStart(2, '0')}:${m}`;
+      });
+      const timeB = b.time.replace(/(\d+):(\d+)\s*(AM|PM)/i, (_, h, m, p) => {
+        let hour = parseInt(h);
+        if (p.toUpperCase() === 'PM' && hour !== 12) hour += 12;
+        if (p.toUpperCase() === 'AM' && hour === 12) hour = 0;
+        return `${hour.toString().padStart(2, '0')}:${m}`;
+      });
+      return timeA.localeCompare(timeB);
+    });
+    
+    return allPendingDoses[0] || null;
+  };
+  
+  const nextPendingDose = getNextPendingDose();
+  const pendingMeds = medications.filter((m) => !isMedTaken(m));
 
   // Format last activity
   const formatLastActivity = (dateStr?: string) => {
@@ -91,36 +157,41 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={onBack}>
-          <ArrowLeft className="w-6 h-6" />
-        </Button>
-        <div className="flex-1">
-          <h2 className="text-senior-xl font-bold">{name}</h2>
-          <div className="flex items-center gap-2">
-            <p className="text-sm text-muted-foreground">{email}</p>
-            {/* Realtime indicator */}
-            <div className="flex items-center gap-1" title={isConnected ? "Real-time sync active" : "Offline"}>
-              {isConnected ? (
-                <Wifi className="w-3 h-3 text-green-500" />
-              ) : (
-                <WifiOff className="w-3 h-3 text-muted-foreground" />
-              )}
+      <div className="flex flex-col gap-3">
+        {/* Top row: Back button and patient info */}
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={onBack} className="shrink-0">
+            <ArrowLeft className="w-6 h-6" />
+          </Button>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-senior-xl font-bold truncate">{name}</h2>
+            <div className="flex items-center gap-2">
+              <p className="text-sm text-muted-foreground truncate">{email}</p>
+              {/* Realtime indicator */}
+              <div className="flex items-center gap-1 shrink-0" title={isConnected ? "Real-time sync active" : "Offline"}>
+                {isConnected ? (
+                  <Wifi className="w-3 h-3 text-green-500" />
+                ) : (
+                  <WifiOff className="w-3 h-3 text-muted-foreground" />
+                )}
+              </div>
             </div>
           </div>
-        </div>
-        
-        {/* Actions */}
-        <div className="flex gap-2">
+          {/* Refresh button stays in top row */}
           <Button
             variant="ghost"
             size="icon"
             onClick={refresh}
             disabled={isSyncing}
             title="Refresh medications"
+            className="shrink-0"
           >
             <RefreshCw className={`w-5 h-5 ${isSyncing ? "animate-spin" : ""}`} />
           </Button>
+        </div>
+        
+        {/* Actions row: Buttons wrap on mobile */}
+        <div className="flex flex-wrap gap-2 ml-12 sm:ml-0 sm:justify-end">
           <Button
             variant="secondary"
             size="sm"
@@ -148,12 +219,12 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
         <div className="card-senior bg-coral-light">
           <div className="flex items-center gap-2 mb-2">
             <Activity className="w-5 h-5 text-primary" />
-            <span className="text-xs text-muted-foreground">Today</span>
+            <span className="text-xs text-muted-foreground">Doses Today</span>
           </div>
           <p className="text-2xl font-bold text-primary">
-            {takenCount}/{totalCount}
+            {takenDoses}/{totalDoses}
           </p>
-          <p className="text-xs text-muted-foreground">completed</p>
+          <p className="text-xs text-muted-foreground">taken</p>
         </div>
 
         <div className="card-senior bg-teal-light">
@@ -163,14 +234,14 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
           </div>
           <p
             className={`text-2xl font-bold ${
-              adherenceRate >= 80
+              progress >= 80
                 ? "text-green-600"
-                : adherenceRate >= 50
+                : progress >= 50
                 ? "text-amber-600"
                 : "text-red-600"
             }`}
           >
-            {adherenceRate}%
+            {progress}%
           </p>
           <p className="text-xs text-muted-foreground">rate</p>
         </div>
@@ -200,29 +271,29 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
       </div>
 
       {/* Upcoming/Alert Section */}
-      {pendingMeds.length > 0 && (
+      {(totalDoses - takenDoses) > 0 && (
         <div className="card-senior border-2 border-amber-300">
           <div className="flex items-center gap-3 mb-3">
             <AlertTriangle className="w-5 h-5 text-amber-600" />
             <span className="font-semibold text-amber-700">
-              {pendingMeds.length} medication{pendingMeds.length > 1 ? "s" : ""}{" "}
+              {totalDoses - takenDoses} dose{(totalDoses - takenDoses) > 1 ? "s" : ""}{" "}
               pending
             </span>
           </div>
-          {upcomingMed && (
+          {nextPendingDose && (
             <div className="bg-amber-50 rounded-xl p-3 flex items-center gap-3">
               <div className="text-center">
                 <p className="text-sm font-bold text-amber-700">
-                  {upcomingMed.time.split(" ")[0]}
+                  {nextPendingDose.time.split(" ")[0]}
                 </p>
                 <p className="text-xs text-amber-600">
-                  {upcomingMed.time.split(" ")[1]}
+                  {nextPendingDose.time.split(" ")[1]}
                 </p>
               </div>
               <div className="flex-1">
-                <p className="font-semibold">{upcomingMed.name}</p>
+                <p className="font-semibold">{nextPendingDose.medName}</p>
                 <p className="text-sm text-muted-foreground">
-                  {upcomingMed.dosage}
+                  {nextPendingDose.dosage} • {nextPendingDose.label}
                 </p>
               </div>
             </div>
@@ -239,7 +310,7 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
 
         {sortedCategories.map((category) => {
           const categoryMeds = groupedByCategory[category];
-          const catTakenCount = categoryMeds.filter((m) => m.taken).length;
+          const catTakenCount = categoryMeds.filter(isMedTaken).length;
 
           return (
             <div key={category} className="space-y-2">
@@ -259,11 +330,13 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
 
               {/* Medications List */}
               <div className="space-y-2">
-                {categoryMeds.map((med) => (
+                {categoryMeds.map((med) => {
+                  const medIsTaken = isMedTaken(med);
+                  return (
                   <div
                     key={med.id}
                     className={`bg-card rounded-xl p-4 border flex items-center gap-4 ${
-                      med.taken ? "opacity-60 border-secondary" : "border-border"
+                      medIsTaken ? "opacity-60 border-secondary" : "border-border"
                     }`}
                   >
                     {/* Medicine Photo or Icon */}
@@ -276,12 +349,12 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
                     ) : (
                       <div
                         className={`w-12 h-12 rounded-lg flex items-center justify-center ${
-                          med.taken ? "bg-secondary/20" : "bg-primary/10"
+                          medIsTaken ? "bg-secondary/20" : "bg-primary/10"
                         }`}
                       >
                         <Pill
                           className={`w-6 h-6 ${
-                            med.taken ? "text-secondary" : "text-primary"
+                            medIsTaken ? "text-secondary" : "text-primary"
                           }`}
                         />
                       </div>
@@ -292,12 +365,12 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
                       <div className="flex items-center gap-2">
                         <p
                           className={`font-semibold truncate ${
-                            med.taken ? "line-through text-muted-foreground" : ""
+                            medIsTaken ? "line-through text-muted-foreground" : ""
                           }`}
                         >
                           {med.name}
                         </p>
-                        {med.taken && (
+                        {medIsTaken && (
                           <Check className="w-4 h-4 text-secondary shrink-0" />
                         )}
                       </div>
@@ -311,20 +384,66 @@ export function PatientDetailView({ patient, onBack, onPatientUpdate }: Props) {
                           {FREQUENCY_LABELS[med.frequency]}
                         </span>
                       )}
+                      {/* Show individual doses for multi-dose medications */}
+                      {med.doses && med.doses.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {med.doses.map((dose) => (
+                            <div key={dose.id} className="flex items-center gap-2 text-xs">
+                              <span className={dose.taken ? "text-secondary" : "text-muted-foreground"}>
+                                {dose.taken ? "✓" : "○"} {dose.label} ({dose.time})
+                              </span>
+                              {dose.taken && dose.takenAt && (
+                                <span className="text-muted-foreground">
+                                  → {new Date(dose.takenAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Status */}
-                    <div
-                      className={`px-3 py-1 rounded-full text-sm font-medium ${
-                        med.taken
-                          ? "bg-secondary/20 text-secondary"
-                          : "bg-amber-100 text-amber-700"
-                      }`}
-                    >
-                      {med.taken ? "Taken" : "Pending"}
+                    <div className="text-right">
+                      {(() => {
+                        // Calculate dose progress for multi-dose medications
+                        const hasDoses = med.doses && med.doses.length > 0;
+                        const totalDoses = hasDoses ? med.doses!.length : 1;
+                        const takenDoses = hasDoses 
+                          ? med.doses!.filter(d => d.taken).length 
+                          : (med.taken ? 1 : 0);
+                        const allTaken = takenDoses === totalDoses;
+                        const someTaken = takenDoses > 0 && !allTaken;
+                        
+                        return (
+                          <>
+                            <div
+                              className={`px-3 py-1 rounded-full text-sm font-medium inline-block ${
+                                allTaken
+                                  ? "bg-secondary/20 text-secondary"
+                                  : someTaken
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-amber-100 text-amber-700"
+                              }`}
+                            >
+                              {allTaken 
+                                ? "Taken" 
+                                : someTaken 
+                                ? `${takenDoses}/${totalDoses}` 
+                                : "Pending"}
+                            </div>
+                            {/* Show actual time when medication was taken (single-dose only) */}
+                            {allTaken && !hasDoses && med.takenAt && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                at {new Date(med.takenAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             </div>
           );

@@ -12,6 +12,7 @@ import {
   Stethoscope,
   ShieldAlert,
   Pill,
+  Heart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,7 +25,6 @@ import type {
   DetectedInteraction,
   InteractionSeverity,
 } from "../services/interactionService";
-import { getSeverityColor } from "../services/interactionService";
 
 interface Props {
   newMedicineName: string;
@@ -33,8 +33,38 @@ interface Props {
   onGoBack: () => void;
 }
 
+// Brand-aligned severity colors
+function getBrandSeverityColor(severity: InteractionSeverity) {
+  switch (severity) {
+    case "Major":
+      return {
+        bg: "bg-primary/10 dark:bg-primary/20",
+        text: "text-primary dark:text-primary",
+        border: "border-primary/30",
+        icon: "text-primary",
+        badge: "bg-primary text-white",
+      };
+    case "Moderate":
+      return {
+        bg: "bg-amber-50 dark:bg-amber-950/30",
+        text: "text-amber-700 dark:text-amber-400",
+        border: "border-amber-200 dark:border-amber-800",
+        icon: "text-amber-600 dark:text-amber-400",
+        badge: "bg-amber-500 text-white",
+      };
+    case "Minor":
+      return {
+        bg: "bg-secondary/10 dark:bg-secondary/20",
+        text: "text-secondary dark:text-secondary",
+        border: "border-secondary/30",
+        icon: "text-secondary",
+        badge: "bg-secondary text-white",
+      };
+  }
+}
+
 function SeverityIcon({ severity }: { severity: InteractionSeverity }) {
-  const colors = getSeverityColor(severity);
+  const colors = getBrandSeverityColor(severity);
   const iconClass = `w-5 h-5 ${colors.icon}`;
 
   switch (severity) {
@@ -48,11 +78,11 @@ function SeverityIcon({ severity }: { severity: InteractionSeverity }) {
 }
 
 function SeverityBadge({ severity }: { severity: InteractionSeverity }) {
-  const colors = getSeverityColor(severity);
+  const colors = getBrandSeverityColor(severity);
 
   return (
     <span
-      className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${colors.bg} ${colors.text} ${colors.border} border`}
+      className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${colors.badge}`}
     >
       {severity}
     </span>
@@ -70,46 +100,25 @@ export function InteractionWarningCard({
     (i) => i.severity === "Moderate"
   );
 
-  // Determine the overall warning level
-  const overallLevel: InteractionSeverity = hasMajorInteraction
-    ? "Major"
-    : hasModerateInteraction
-    ? "Moderate"
-    : "Minor";
-
-  const overallColors = getSeverityColor(overallLevel);
-
   return (
-    <div className="bg-card rounded-2xl border border-border overflow-hidden">
-      {/* Header with Warning */}
-      <div
-        className={`px-6 py-5 border-b ${overallColors.bg} ${overallColors.border}`}
-      >
-        <div className="flex items-start gap-4">
-          <div
-            className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
-              hasMajorInteraction
-                ? "bg-red-100 dark:bg-red-900/50"
-                : hasModerateInteraction
-                ? "bg-amber-100 dark:bg-amber-900/50"
-                : "bg-blue-100 dark:bg-blue-900/50"
-            }`}
-          >
-            <ShieldAlert
-              className={`w-7 h-7 ${
-                hasMajorInteraction
-                  ? "text-red-600 dark:text-red-400"
-                  : hasModerateInteraction
-                  ? "text-amber-600 dark:text-amber-400"
-                  : "text-blue-600 dark:text-blue-400"
-              }`}
-            />
+    <div className="bg-card rounded-3xl border-2 border-primary/20 overflow-hidden shadow-xl shadow-primary/10">
+      {/* Branded Header with Coral Gradient */}
+      <div className="relative px-6 py-6 bg-gradient-to-br from-primary via-primary to-[hsl(16_100%_72%)] overflow-hidden">
+        {/* Decorative Pattern */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute -top-4 -right-4 w-32 h-32 rounded-full border-4 border-white"></div>
+          <div className="absolute -bottom-8 -left-8 w-40 h-40 rounded-full border-4 border-white"></div>
+        </div>
+
+        <div className="relative flex items-start gap-4">
+          <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30">
+            <ShieldAlert className="w-8 h-8 text-white" />
           </div>
           <div className="flex-1">
-            <h3 className={`font-bold text-lg ${overallColors.text}`}>
+            <h3 className="font-bold text-xl text-white">
               Drug Interaction{interactions.length > 1 ? "s" : ""} Detected
             </h3>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="text-sm text-white/90 mt-1">
               <span className="font-semibold">{newMedicineName}</span> may
               interact with{" "}
               {interactions.length === 1 ? (
@@ -126,16 +135,19 @@ export function InteractionWarningCard({
         </div>
       </div>
 
-      {/* Doctor Consultation Recommendation */}
-      <div className="px-6 py-4 bg-gradient-to-r from-primary/5 to-secondary/5 border-b border-border">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-            <Stethoscope className="w-5 h-5 text-primary" />
+      {/* Doctor Consultation Recommendation - Teal Themed */}
+      <div className="px-6 py-4 bg-gradient-to-r from-secondary/10 to-teal-light/50 dark:from-secondary/20 dark:to-secondary/10 border-b border-secondary/20">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-secondary/20 flex items-center justify-center shrink-0">
+            <Stethoscope className="w-6 h-6 text-secondary" />
           </div>
-          <p className="text-sm font-medium">
-            We recommend consulting your doctor or pharmacist before taking this
-            medicine together with your current medications.
-          </p>
+          <div>
+            <p className="text-sm font-bold text-secondary">Recommendation</p>
+            <p className="text-sm text-muted-foreground">
+              Consult your doctor or pharmacist before taking these medicines
+              together.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -143,23 +155,23 @@ export function InteractionWarningCard({
       <div className="p-6">
         <Accordion type="multiple" className="space-y-3">
           {interactions.map((interaction, index) => {
-            const colors = getSeverityColor(interaction.severity);
+            const colors = getBrandSeverityColor(interaction.severity);
 
             return (
               <AccordionItem
                 key={index}
                 value={`interaction-${index}`}
-                className={`border rounded-xl overflow-hidden ${colors.border}`}
+                className={`border-2 rounded-2xl overflow-hidden ${colors.border}`}
               >
                 <AccordionTrigger
-                  className={`px-4 py-3 hover:no-underline ${colors.bg}`}
+                  className={`px-4 py-4 hover:no-underline ${colors.bg}`}
                 >
                   <div className="flex items-center gap-3 flex-1 text-left">
                     <SeverityIcon severity={interaction.severity} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold">
-                          Interaction with {interaction.currentMedication}
+                        <span className="font-bold">
+                          {interaction.currentMedication}
                         </span>
                         <SeverityBadge severity={interaction.severity} />
                       </div>
@@ -169,8 +181,9 @@ export function InteractionWarningCard({
                 <AccordionContent className="px-4 pb-4 pt-2">
                   <div className="space-y-4">
                     {/* Clinical Effect */}
-                    <div>
-                      <h5 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                    <div className="bg-muted/50 rounded-xl p-3">
+                      <h5 className="text-xs font-bold uppercase tracking-wide text-primary mb-1 flex items-center gap-1">
+                        <Heart className="w-3 h-3" />
                         What could happen
                       </h5>
                       <p className="text-sm">{interaction.clinicalEffect}</p>
@@ -178,7 +191,7 @@ export function InteractionWarningCard({
 
                     {/* Mechanism */}
                     <div>
-                      <h5 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                      <h5 className="text-xs font-bold uppercase tracking-wide text-muted-foreground mb-1">
                         Why it happens
                       </h5>
                       <p className="text-sm text-muted-foreground">
@@ -188,14 +201,8 @@ export function InteractionWarningCard({
 
                     {/* Safer Alternative */}
                     {interaction.saferAlternative && (
-                      <div
-                        className={`p-3 rounded-lg border ${
-                          interaction.severity === "Major"
-                            ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800"
-                            : "bg-muted/50 border-border"
-                        }`}
-                      >
-                        <h5 className="text-xs font-semibold uppercase tracking-wide text-green-700 dark:text-green-400 mb-1">
+                      <div className="p-3 rounded-xl border-2 border-secondary/30 bg-secondary/10">
+                        <h5 className="text-xs font-bold uppercase tracking-wide text-secondary mb-1">
                           Safer Alternative
                         </h5>
                         <p className="text-sm font-medium">
@@ -212,9 +219,9 @@ export function InteractionWarningCard({
 
         {/* Action Buttons */}
         <div className="mt-6 space-y-3">
-          {/* Primary Action - Go Back */}
+          {/* Primary Action - Go Back (Teal) */}
           <Button
-            variant="outline"
+            variant="teal"
             size="lg"
             className="w-full"
             onClick={onGoBack}
@@ -223,11 +230,15 @@ export function InteractionWarningCard({
             Go Back & Review
           </Button>
 
-          {/* Secondary Action - Proceed Anyway (with warning styling for Major) */}
+          {/* Secondary Action - Proceed Anyway */}
           <Button
-            variant={hasMajorInteraction ? "destructive" : "secondary"}
+            variant="outline"
             size="lg"
-            className="w-full"
+            className={`w-full border-2 ${
+              hasMajorInteraction
+                ? "border-primary/50 text-primary hover:bg-primary/10"
+                : ""
+            }`}
             onClick={onProceedAnyway}
           >
             <Pill className="w-5 h-5 mr-2" />
@@ -236,10 +247,12 @@ export function InteractionWarningCard({
           </Button>
 
           {hasMajorInteraction && (
-            <p className="text-xs text-center text-muted-foreground">
-              ⚠️ Major interactions detected. Proceeding is not recommended
-              without medical consultation.
-            </p>
+            <div className="flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-primary/5 border border-primary/20">
+              <AlertTriangle className="w-4 h-4 text-primary shrink-0" />
+              <p className="text-xs text-primary font-medium">
+                Medical consultation recommended before proceeding
+              </p>
+            </div>
           )}
         </div>
       </div>

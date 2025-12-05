@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppProvider, useApp } from "@/contexts/AppContext";
 import { loadDrugDatabase } from "@/services/drugDatabase";
 import { FullScreenLoader } from "@/components/ui/loading-spinner";
+import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import AskAInay from "./pages/AskAInay";
@@ -56,6 +57,10 @@ function AppRoutes() {
     <Routes>
       <Route
         path="/"
+        element={isLoggedIn ? <Navigate to="/dashboard" replace /> : <Landing />}
+      />
+      <Route
+        path="/login"
         element={isLoggedIn ? <Navigate to="/dashboard" replace /> : <Login />}
       />
       <Route

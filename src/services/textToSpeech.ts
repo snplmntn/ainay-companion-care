@@ -12,6 +12,7 @@ export interface TTSOptions {
   voice?: TTSVoice;
   speed?: number; // 0.25 to 4.0
   engine?: TTSEngine;
+  onStart?: () => void; // Called when audio starts playing (after loading)
 }
 
 // Voice recommendations by language/context
@@ -95,6 +96,7 @@ export function isSpeaking(): boolean {
 
 /**
  * Convert text to speech using OpenAI TTS API
+ * Returns audio element only when it's fully loaded and ready to play
  */
 export async function textToSpeech(
   text: string,
@@ -141,9 +143,27 @@ export async function textToSpeech(
   const audioUrl = URL.createObjectURL(audioBlob);
   currentAudioUrl = audioUrl;
 
-  // Create and return audio element
+  // Create audio element
   const audio = new Audio(audioUrl);
   currentAudio = audio;
+
+  // Wait for audio to be ready to play (fully loaded)
+  await new Promise<void>((resolve, reject) => {
+    const onCanPlay = () => {
+      audio.removeEventListener("canplaythrough", onCanPlay);
+      audio.removeEventListener("error", onError);
+      resolve();
+    };
+    const onError = () => {
+      audio.removeEventListener("canplaythrough", onCanPlay);
+      audio.removeEventListener("error", onError);
+      reject(new Error("Failed to load audio"));
+    };
+    audio.addEventListener("canplaythrough", onCanPlay);
+    audio.addEventListener("error", onError);
+    // Trigger loading
+    audio.load();
+  });
 
   // Clean up when audio ends
   audio.addEventListener("ended", () => {
@@ -170,7 +190,12 @@ export async function speak(
   return new Promise((resolve, reject) => {
     audio.addEventListener("ended", () => resolve());
     audio.addEventListener("error", (e) => reject(e));
-    audio.play().catch(reject);
+    audio.play()
+      .then(() => {
+        // Audio started playing - call onStart callback
+        options.onStart?.();
+      })
+      .catch(reject);
   });
 }
 
@@ -307,7 +332,7 @@ export function getBestWarmVoice(language: SupportedLanguage): SpeechSynthesisVo
 export function speakWithBrowser(
   text: string,
   language: SupportedLanguage = "en",
-  options: { rate?: number; pitch?: number } = {}
+  options: { rate?: number; pitch?: number; onStart?: () => void } = {}
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!("speechSynthesis" in window)) {
@@ -342,6 +367,11 @@ export function speakWithBrowser(
     if (bestVoice) {
       utterance.voice = bestVoice;
     }
+
+    // Call onStart when speech begins
+    utterance.onstart = () => {
+      options.onStart?.();
+    };
 
     utterance.onend = () => {
       currentUtterance = null;
@@ -384,7 +414,7 @@ export async function speakWithPreferredEngine(
   const engine = options.engine ?? loadTTSEnginePreference();
   
   if (engine === "browser") {
-    await speakWithBrowser(text, language, { rate: options.speed });
+    await speakWithBrowser(text, language, { rate: options.speed, onStart: options.onStart });
   } else {
     await speak(text, language, options);
   }
@@ -402,7 +432,7 @@ export async function speakWithFallback(
   
   try {
     if (engine === "browser") {
-      await speakWithBrowser(text, language, { rate: options.speed });
+      await speakWithBrowser(text, language, { rate: options.speed, onStart: options.onStart });
     } else {
       await speak(text, language, options);
     }
@@ -410,7 +440,7 @@ export async function speakWithFallback(
     console.warn(`${engine} TTS failed, trying fallback:`, error);
     // Fall back to the other engine
     if (engine === "openai") {
-      await speakWithBrowser(text, language, { rate: options.speed });
+      await speakWithBrowser(text, language, { rate: options.speed, onStart: options.onStart });
     } else {
       await speak(text, language, options);
     }

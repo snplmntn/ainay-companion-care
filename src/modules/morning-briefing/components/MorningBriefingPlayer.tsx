@@ -2,7 +2,7 @@
 // Morning Briefing Player Component
 // ============================================
 
-import React from "react";
+import React, { useState } from "react";
 import {
   Play,
   Pause,
@@ -17,12 +17,29 @@ import {
   Cloud,
   CloudSun,
   RefreshCw,
+  Languages,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/contexts/AppContext";
 import { useMorningBriefing } from "../hooks/useMorningBriefing";
 import { BRIEFING_CACHE_KEY } from "../constants";
 import type { WeatherData } from "../types";
+import {
+  type SupportedLanguage,
+  loadLanguagePreference,
+  saveLanguagePreference,
+  getLanguageOptions,
+  LANGUAGES,
+} from "@/services/language";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 /**
  * Get greeting and icon based on time of day
@@ -30,12 +47,12 @@ import type { WeatherData } from "../types";
 function getTimeOfDayInfo() {
   const hour = new Date().getHours();
   if (hour < 12) {
-    return { greeting: "Morning Briefing", Icon: Sunrise, theme: "morning" };
+    return { greeting: "Good Morning", Icon: Sunrise, theme: "morning" };
   }
   if (hour < 17) {
-    return { greeting: "Afternoon Briefing", Icon: Sun, theme: "afternoon" };
+    return { greeting: "Good Afternoon", Icon: Sun, theme: "afternoon" };
   }
-  return { greeting: "Evening Briefing", Icon: Moon, theme: "evening" };
+  return { greeting: "Good Evening", Icon: Moon, theme: "evening" };
 }
 
 /**
@@ -77,6 +94,14 @@ export function MorningBriefingPlayer({
   const { userName: contextUserName, medications } = useApp();
   const userName = userNameOverride || contextUserName || "Friend";
 
+  // Language state - synced with user preference
+  const [language, setLanguage] = useState<SupportedLanguage>(() =>
+    loadLanguagePreference()
+  );
+
+  // Collapsed state for script text - collapsed by default
+  const [isTextExpanded, setIsTextExpanded] = useState(false);
+
   const {
     weather,
     script,
@@ -87,7 +112,17 @@ export function MorningBriefingPlayer({
     pause,
     replay,
     generateBriefing,
-  } = useMorningBriefing(userName, medications);
+  } = useMorningBriefing(userName, medications, language);
+
+  // Handle language change - save preference and regenerate briefing
+  const handleLanguageChange = (newLang: SupportedLanguage) => {
+    setLanguage(newLang);
+    saveLanguagePreference(newLang);
+    // Clear cache and regenerate with new language
+    localStorage.removeItem(BRIEFING_CACHE_KEY);
+    // Trigger regeneration after state update
+    setTimeout(() => generateBriefing(), 100);
+  };
 
   const { greeting, Icon: TimeIcon } = getTimeOfDayInfo();
   const isLoading = status === "loading";
@@ -131,6 +166,9 @@ export function MorningBriefingPlayer({
   }, [progress, onPlayComplete]);
 
   const handlePlayPause = () => {
+    // Prevent clicks while loading
+    if (isLoading) return;
+
     if (isPlaying) {
       pause();
     } else if (isPaused || progress >= 100) {
@@ -148,12 +186,12 @@ export function MorningBriefingPlayer({
   };
 
   const getStatusText = () => {
-    if (isLoading) return "Preparing your briefing...";
-    if (isPlaying) return "Playing...";
+    if (isLoading) return "Getting ready...";
+    if (isPlaying) return "Playing now...";
     if (isPaused) return "Paused";
-    if (hasError) return "Tap to retry";
-    if (progress >= 100) return "Tap to replay";
-    return "Tap to listen";
+    if (hasError) return "Try again";
+    if (progress >= 100) return "Play again";
+    return "Press play to listen";
   };
 
   return (
@@ -189,7 +227,9 @@ export function MorningBriefingPlayer({
               <Radio className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold tracking-tight">Health Radio</h2>
+              <h2 className="text-lg font-bold tracking-tight">
+                Your Daily Update
+              </h2>
               <div className="flex items-center gap-1.5 text-white/80 text-sm">
                 <TimeIcon className="w-3.5 h-3.5" />
                 <span>{greeting}</span>
@@ -208,6 +248,25 @@ export function MorningBriefingPlayer({
               </div>
             )}
 
+            {/* Language selector */}
+            <Select
+              value={language}
+              onValueChange={(val) =>
+                handleLanguageChange(val as SupportedLanguage)
+              }
+            >
+              <SelectTrigger className="w-auto h-8 bg-white/20 hover:bg-white/30 border-0 rounded-full px-2 text-white">
+                <Languages className="w-4 h-4" />
+              </SelectTrigger>
+              <SelectContent>
+                {getLanguageOptions().map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
             {/* Refresh button */}
             <Button
               variant="ghost"
@@ -215,7 +274,7 @@ export function MorningBriefingPlayer({
               onClick={handleRefresh}
               disabled={isLoading}
               className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full"
-              title="Generate new briefing"
+              title="Create a new update"
             >
               <RefreshCw
                 className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`}
@@ -224,81 +283,101 @@ export function MorningBriefingPlayer({
           </div>
         </div>
 
-        {/* Script text */}
-        <div className="mb-5">
-          {isLoading ? (
-            <div className="flex items-center gap-2 text-white/80">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm">
-                Creating your personalized briefing...
-              </span>
+        {/* Hero Play Button - Prominent and centered */}
+        <div className="flex flex-col items-center mb-4">
+          <button
+            onClick={hasError ? generateBriefing : handlePlayPause}
+            disabled={isLoading}
+            className={`
+              relative w-20 h-20 rounded-full bg-white shadow-2xl
+              transition-all duration-300 ease-out
+              hover:scale-105 active:scale-95
+              disabled:opacity-50 disabled:cursor-not-allowed
+              ring-4 ${isPlaying ? "ring-white/60" : "ring-white/30"}
+            `}
+          >
+            <span className="flex items-center justify-center w-full h-full text-rose-500">
+              {isLoading ? (
+                <Loader2 className="w-9 h-9 animate-spin" />
+              ) : isPlaying ? (
+                <Pause className="w-9 h-9" />
+              ) : progress >= 100 || hasError ? (
+                <RotateCcw className="w-8 h-8" />
+              ) : (
+                <Play className="w-9 h-9 ml-1" />
+              )}
+            </span>
+          </button>
+
+          {/* Status text under button */}
+          <div className="flex items-center gap-2 mt-3 text-white/90">
+            <Volume2 className="w-4 h-4" />
+            <span className="text-sm font-medium">{getStatusText()}</span>
+          </div>
+
+          {/* Progress bar */}
+          <div className="w-full max-w-xs mt-3">
+            <div className="h-1.5 bg-white/30 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-white rounded-full transition-all duration-200 ease-out"
+                style={{ width: `${Math.max(progress, 0)}%` }}
+              />
             </div>
-          ) : hasError ? (
-            <p className="text-sm text-white/80 leading-relaxed">
-              {error || "Unable to load briefing. Tap to try again."}
-            </p>
-          ) : (
-            <p className="text-base leading-relaxed text-white/95">
-              {script?.text || "Loading your daily briefing..."}
-            </p>
-          )}
+            {(isPlaying || isPaused) && (
+              <div className="flex justify-between mt-1">
+                <span className="text-xs text-white/70">
+                  {Math.floor((progress / 100) * 30)}s
+                </span>
+                <span className="text-xs text-white/70">~30s</span>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Audio Player Card */}
-        <div className="bg-white/20 rounded-2xl p-4 backdrop-blur-sm">
-          <div className="flex items-center gap-4">
-            {/* Play/Pause Button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={hasError ? generateBriefing : handlePlayPause}
-              disabled={isLoading}
-              className="w-14 h-14 bg-white text-rose-500 hover:bg-white/90 hover:text-rose-600 rounded-full shrink-0 shadow-lg transition-all duration-200 active:scale-95 disabled:opacity-50"
-            >
+        {/* Collapsible Script Text */}
+        <div className="bg-white/10 rounded-xl backdrop-blur-sm overflow-hidden">
+          <button
+            onClick={() => setIsTextExpanded(!isTextExpanded)}
+            className="w-full flex items-center justify-between p-3 hover:bg-white/5 transition-colors"
+          >
+            <span className="text-sm font-medium text-white/80">
+              {isLoading ? "Getting ready..." : "Read what I'll say"}
+            </span>
+            {isTextExpanded ? (
+              <ChevronUp className="w-4 h-4 text-white/60" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-white/60" />
+            )}
+          </button>
+
+          <div
+            className={`
+              transition-all duration-300 ease-in-out overflow-hidden
+              ${isTextExpanded ? "max-h-96 opacity-100" : "max-h-0 opacity-0"}
+            `}
+          >
+            <div className="px-3 pb-3">
               {isLoading ? (
-                <Loader2 className="w-7 h-7 animate-spin" />
-              ) : isPlaying ? (
-                <Pause className="w-7 h-7" />
-              ) : progress >= 100 || hasError ? (
-                <RotateCcw className="w-6 h-6" />
-              ) : (
-                <Play className="w-7 h-7 ml-1" />
-              )}
-            </Button>
-
-            <div className="flex-1 min-w-0">
-              {/* Status text */}
-              <div className="flex items-center gap-2 mb-2">
-                <Volume2 className="w-4 h-4 shrink-0" />
-                <span className="text-sm font-medium truncate">
-                  {getStatusText()}
-                </span>
-              </div>
-
-              {/* Progress bar */}
-              <div className="h-2 bg-white/30 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-white rounded-full transition-all duration-200 ease-out"
-                  style={{ width: `${Math.max(progress, 0)}%` }}
-                />
-              </div>
-
-              {/* Duration indicator */}
-              {(isPlaying || isPaused) && (
-                <div className="flex justify-between mt-1">
-                  <span className="text-xs text-white/70">
-                    {Math.floor((progress / 100) * 30)}s
-                  </span>
-                  <span className="text-xs text-white/70">~30s</span>
+                <div className="flex items-center gap-2 text-white/70">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Writing your daily update...</span>
                 </div>
+              ) : hasError ? (
+                <p className="text-sm text-white/70 leading-relaxed">
+                  {error || "Something went wrong. Press play to try again."}
+                </p>
+              ) : (
+                <p className="text-sm leading-relaxed text-white/90">
+                  {script?.text || "Loading..."}
+                </p>
               )}
             </div>
           </div>
         </div>
 
         {/* Footer hint */}
-        <p className="text-center text-xs text-white/60 mt-3">
-          🎙️ Your personalized health update
+        <p className="text-center text-xs text-white/50 mt-4">
+          🎙️ Press play to hear your daily health tips
         </p>
       </div>
     </div>

@@ -8,21 +8,22 @@ import {
   Crown,
   Mic,
   Scan,
-  Calendar,
   BarChart3,
   HeadphonesIcon,
   RefreshCw,
+  Infinity,
+  Languages,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSubscription, lookupSessionByTxnRef } from "@/modules/subscription";
 import confetti from "canvas-confetti";
 
 const UNLOCKED_FEATURES = [
-  { icon: Scan, label: "Prescription scanning with AI", color: "text-violet-500" },
-  { icon: Mic, label: "Voice assistance in Tagalog & English", color: "text-sky-500" },
-  { icon: Calendar, label: "Daily morning briefing", color: "text-amber-500" },
-  { icon: Sparkles, label: "Unlimited medications", color: "text-emerald-500" },
-  { icon: BarChart3, label: "Advanced analytics", color: "text-rose-500" },
+  { icon: Infinity, label: "Unlimited medicines", color: "text-emerald-500" },
+  { icon: Scan, label: "Scan prescriptions", color: "text-violet-500" },
+  { icon: Languages, label: "Tagalog & English", color: "text-sky-500" },
+  { icon: BarChart3, label: "Progress tracking", color: "text-rose-500" },
+  { icon: Sparkles, label: "Smart reminders", color: "text-amber-500" },
   { icon: HeadphonesIcon, label: "Priority support", color: "text-indigo-500" },
 ];
 
@@ -81,11 +82,10 @@ export default function SubscriptionSuccess() {
 
         // Grand celebration confetti!
         setTimeout(() => {
-          // Center burst
           confetti({
             particleCount: 150,
             spread: 100,
-            origin: { y: 0.5, x: 0.5 },
+            origin: { y: 0.4, x: 0.5 },
             colors: ["#FF6B6B", "#4ECDC4", "#FFE66D", "#95E1D3", "#A78BFA"],
             startVelocity: 45,
           });
@@ -97,14 +97,14 @@ export default function SubscriptionSuccess() {
             particleCount: 60,
             angle: 60,
             spread: 60,
-            origin: { x: 0, y: 0.6 },
+            origin: { x: 0, y: 0.5 },
             colors: ["#FF6B6B", "#FFE66D"],
           });
           confetti({
             particleCount: 60,
             angle: 120,
             spread: 60,
-            origin: { x: 1, y: 0.6 },
+            origin: { x: 1, y: 0.5 },
             colors: ["#4ECDC4", "#A78BFA"],
           });
         }, 600);
@@ -123,25 +123,18 @@ export default function SubscriptionSuccess() {
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-slate-50 via-white to-emerald-50/50 dark:from-slate-950 dark:via-slate-900 dark:to-emerald-950/30 p-6">
         <div className="relative">
-          {/* Outer glow */}
           <div className="absolute inset-0 animate-pulse">
-            <div className="w-24 h-24 rounded-full bg-primary/20 blur-xl" />
+            <div className="w-20 h-20 rounded-full bg-primary/20 blur-xl" />
           </div>
-          {/* Spinner */}
-          <div className="relative w-24 h-24 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-          {/* Center icon */}
+          <div className="relative w-20 h-20 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
           <div className="absolute inset-0 flex items-center justify-center">
-            <Crown className="w-8 h-8 text-primary animate-pulse" />
+            <Crown className="w-7 h-7 text-primary animate-pulse" />
           </div>
         </div>
         
-        <div className="mt-8 text-center space-y-2">
-          <h2 className="text-xl font-semibold text-foreground">
-            Verifying your payment...
-          </h2>
-          <p className="text-muted-foreground text-sm max-w-xs">
-            Hang tight! We're activating your Pro subscription
-          </p>
+        <div className="mt-6 text-center">
+          <h2 className="text-xl font-semibold text-foreground">Just a moment...</h2>
+          <p className="text-muted-foreground text-sm mt-1">Getting everything ready!</p>
         </div>
       </div>
     );
@@ -151,43 +144,31 @@ export default function SubscriptionSuccess() {
   if (status === "error") {
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-slate-50 via-white to-red-50/30 dark:from-slate-950 dark:via-slate-900 dark:to-red-950/20 p-6">
-        <div className="w-full max-w-md mx-auto text-center">
-          {/* Error Icon */}
-          <div className="relative w-24 h-24 mx-auto mb-6">
+        <div className="w-full max-w-sm mx-auto text-center">
+          <div className="relative w-20 h-20 mx-auto mb-5">
             <div className="absolute inset-0 bg-red-500/20 rounded-full blur-xl animate-pulse" />
-            <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center shadow-lg shadow-red-500/30">
-              <XCircle className="w-12 h-12 text-white" />
+            <div className="relative w-20 h-20 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center shadow-lg">
+              <XCircle className="w-10 h-10 text-white" />
             </div>
           </div>
 
-          <h1 className="text-2xl font-bold text-foreground mb-3">
-            Payment Verification Failed
-          </h1>
-          <p className="text-muted-foreground mb-8 leading-relaxed">
-            {errorMessage || "We couldn't verify your payment. Please try again or contact support."}
+          <h1 className="text-xl font-bold text-foreground mb-2">Something Went Wrong</h1>
+          <p className="text-sm text-muted-foreground mb-6">
+            {errorMessage || "We couldn't complete your payment. Let's try again!"}
           </p>
 
-          <div className="flex flex-col gap-3">
-            <Button
-              onClick={() => navigate("/subscription/pricing")}
-              size="lg"
-              className="w-full gap-2"
-            >
+          <div className="flex flex-col gap-2">
+            <Button onClick={() => navigate("/subscription/pricing")} size="lg" className="w-full gap-2">
               <RefreshCw className="w-4 h-4" />
               Try Again
             </Button>
-            <Button
-              onClick={() => navigate("/dashboard")}
-              variant="ghost"
-              size="lg"
-              className="w-full"
-            >
-              Go to Dashboard
+            <Button onClick={() => navigate("/dashboard")} variant="ghost" className="w-full">
+              Go Home
             </Button>
           </div>
 
-          <p className="text-xs text-muted-foreground mt-8">
-            Need help? Contact{" "}
+          <p className="text-xs text-muted-foreground mt-6">
+            Need help?{" "}
             <a href="mailto:support@ainay.care" className="text-primary hover:underline">
               support@ainay.care
             </a>
@@ -197,126 +178,104 @@ export default function SubscriptionSuccess() {
     );
   }
 
-  // Success State
+  // Success State - Balanced design that fits on one screen
   return (
-    <div className="fixed inset-0 overflow-y-auto bg-gradient-to-br from-slate-50 via-white to-emerald-50/50 dark:from-slate-950 dark:via-slate-900 dark:to-emerald-950/30">
-      {/* Decorative background elements */}
+    <div className="fixed inset-0 flex flex-col bg-gradient-to-br from-slate-50 via-white to-emerald-50/50 dark:from-slate-950 dark:via-slate-900 dark:to-emerald-950/30">
+      {/* Decorative background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-emerald-400/10 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl" />
+        <div className="absolute top-1/4 left-1/4 w-56 h-56 bg-emerald-400/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-72 h-72 bg-primary/5 rounded-full blur-3xl" />
       </div>
 
-      <div className="relative min-h-full flex flex-col items-center justify-center p-6 py-12">
-        <div className="w-full max-w-md mx-auto">
-          {/* Success Badge Animation */}
-          <div
-            className={`relative w-28 h-28 mx-auto mb-8 transition-all duration-700 ease-out ${
-              showContent ? "opacity-100 scale-100" : "opacity-0 scale-50"
-            }`}
-          >
-            {/* Animated rings */}
-            <div className="absolute inset-0 animate-ping opacity-30">
-              <div className="w-28 h-28 rounded-full bg-emerald-400" />
-            </div>
-            <div className="absolute inset-2 animate-pulse">
-              <div className="w-24 h-24 rounded-full bg-emerald-400/30" />
-            </div>
-            {/* Main badge */}
-            <div className="relative w-28 h-28 rounded-full bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 flex items-center justify-center shadow-2xl shadow-emerald-500/40">
-              <CheckCircle className="w-14 h-14 text-white drop-shadow-lg" strokeWidth={2.5} />
-            </div>
-            {/* Pro crown */}
-            <div className="absolute -top-2 -right-2 w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
-              <Crown className="w-5 h-5 text-white" />
-            </div>
+      {/* Main Content - Centered with flex */}
+      <div className="relative flex-1 flex flex-col items-center justify-center px-6 py-8 max-w-md mx-auto w-full">
+        {/* Success Badge */}
+        <div
+          className={`relative w-24 h-24 mb-5 transition-all duration-700 ease-out ${
+            showContent ? "opacity-100 scale-100" : "opacity-0 scale-50"
+          }`}
+        >
+          <div className="absolute inset-0 animate-ping opacity-20">
+            <div className="w-24 h-24 rounded-full bg-emerald-400" />
           </div>
-
-          {/* Welcome Message */}
-          <div
-            className={`text-center mb-8 transition-all duration-500 delay-200 ${
-              showContent ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-            }`}
-          >
-            <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-3 tracking-tight">
-              Welcome to Pro! 🎉
-            </h1>
-            <p className="text-muted-foreground leading-relaxed">
-              Your subscription is now active. Enjoy all the premium features of AInay Companion Care.
-            </p>
+          <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 flex items-center justify-center shadow-xl shadow-emerald-500/30">
+            <CheckCircle className="w-12 h-12 text-white" strokeWidth={2.5} />
           </div>
-
-          {/* Features Card */}
-          <div
-            className={`bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm border border-slate-200/50 dark:border-slate-700/50 rounded-3xl p-6 mb-6 shadow-xl shadow-slate-200/50 dark:shadow-slate-900/50 transition-all duration-500 delay-300 ${
-              showContent ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-            }`}
-          >
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-primary" />
-              </div>
-              <h2 className="font-semibold text-lg">Features Now Unlocked</h2>
-            </div>
-
-            <ul className="space-y-3">
-              {UNLOCKED_FEATURES.map((feature, index) => (
-                <li
-                  key={index}
-                  className={`flex items-center gap-3 p-2 rounded-xl hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition-all duration-300 ${
-                    showContent ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4"
-                  }`}
-                  style={{ transitionDelay: `${400 + index * 80}ms` }}
-                >
-                  <div className={`w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center flex-shrink-0`}>
-                    <feature.icon className={`w-4 h-4 ${feature.color}`} />
-                  </div>
-                  <span className="text-sm font-medium text-foreground">{feature.label}</span>
-                </li>
-              ))}
-            </ul>
+          <div className="absolute -top-1.5 -right-1.5 w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
+            <Crown className="w-5 h-5 text-white" />
           </div>
-
-          {/* CTA Buttons */}
-          <div
-            className={`space-y-3 transition-all duration-500 delay-700 ${
-              showContent ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-            }`}
-          >
-            <Button
-              onClick={() => navigate("/dashboard")}
-              size="lg"
-              className="w-full h-14 text-base font-semibold bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-600 hover:via-emerald-700 hover:to-teal-700 shadow-lg shadow-emerald-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-500/40 hover:-translate-y-0.5"
-            >
-              Go to Dashboard
-              <ArrowRight className="w-5 h-5 ml-2" />
-            </Button>
-            <Button
-              onClick={() => navigate("/ask")}
-              variant="outline"
-              size="lg"
-              className="w-full h-12 font-medium border-2 hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              <Mic className="w-4 h-4 mr-2" />
-              Try Voice Assistant
-            </Button>
-          </div>
-
-          {/* Footer */}
-          <p
-            className={`text-center text-xs text-muted-foreground mt-8 transition-all duration-500 delay-900 ${
-              showContent ? "opacity-100" : "opacity-0"
-            }`}
-          >
-            A receipt has been sent to your email.
-            <br />
-            <span className="text-muted-foreground/70">
-              Questions?{" "}
-              <a href="mailto:support@ainay.care" className="text-primary hover:underline">
-                support@ainay.care
-              </a>
-            </span>
-          </p>
         </div>
+
+        {/* Welcome Message */}
+        <div
+          className={`text-center mb-6 transition-all duration-500 delay-200 ${
+            showContent ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+          }`}
+        >
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-2">You're All Set! 🎉</h1>
+          <p className="text-base text-muted-foreground">All Pro features are now unlocked!</p>
+        </div>
+
+        {/* Features Grid - 2-column layout */}
+        <div
+          className={`w-full bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm border border-slate-200/50 dark:border-slate-700/50 rounded-2xl p-5 mb-6 shadow-lg transition-all duration-500 delay-300 ${
+            showContent ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+          }`}
+        >
+          <div className="grid grid-cols-2 gap-3">
+            {UNLOCKED_FEATURES.map((feature, index) => (
+              <div
+                key={index}
+                className={`flex items-center gap-3 p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 transition-all duration-300 ${
+                  showContent ? "opacity-100" : "opacity-0"
+                }`}
+                style={{ transitionDelay: `${400 + index * 50}ms` }}
+              >
+                <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-700 flex items-center justify-center shrink-0 shadow-sm">
+                  <feature.icon className={`w-5 h-5 ${feature.color}`} />
+                </div>
+                <span className="text-sm font-medium text-foreground leading-tight">{feature.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* CTA Buttons */}
+        <div
+          className={`w-full space-y-3 transition-all duration-500 delay-600 ${
+            showContent ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+          }`}
+        >
+          <Button
+            onClick={() => navigate("/dashboard")}
+            size="lg"
+            className="w-full h-14 text-lg font-semibold bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-600 hover:via-emerald-700 hover:to-teal-700 shadow-lg shadow-emerald-500/25"
+          >
+            Go Home
+            <ArrowRight className="w-5 h-5 ml-2" />
+          </Button>
+          <Button
+            onClick={() => navigate("/ask")}
+            variant="outline"
+            size="lg"
+            className="w-full h-12 text-base font-medium border-2"
+          >
+            <Mic className="w-5 h-5 mr-2" />
+            Talk to AInay
+          </Button>
+        </div>
+
+        {/* Footer */}
+        <p
+          className={`text-center text-sm text-muted-foreground mt-5 transition-all duration-500 delay-700 ${
+            showContent ? "opacity-100" : "opacity-0"
+          }`}
+        >
+          Receipt sent to your email •{" "}
+          <a href="mailto:support@ainay.care" className="text-primary hover:underline">
+            Need help?
+          </a>
+        </p>
       </div>
     </div>
   );

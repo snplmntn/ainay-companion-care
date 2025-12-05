@@ -176,8 +176,8 @@ export async function sendPushNotification(userId, payload) {
   const notificationPayload = JSON.stringify({
     title: payload.title || 'AInay Notification',
     body: payload.body || '',
-    icon: payload.icon || '/icon.png',
-    badge: payload.badge || '/icon.png',
+    icon: payload.icon || '/icon.ico',
+    badge: payload.badge || '/icon.ico',
     tag: payload.tag || 'ainay-notification',
     data: payload.data || {},
     actions: payload.actions || [],
@@ -257,14 +257,23 @@ export async function sendMissedMedicationPush({
   dosage,
   scheduledTime,
   minutesMissed,
+  medicationId,
 }) {
+  // Use a stable tag based on medication + scheduled time so repeat notifications
+  // replace the previous one instead of creating multiple stacked notifications
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const stableTag = medicationId 
+    ? `missed-med-${medicationId}-${today}`
+    : `missed-med-${patientName}-${medicationName}-${scheduledTime}`.replace(/\s+/g, '-');
+
   const payload = {
     title: `⚠️ Missed Medication Alert`,
     body: `${patientName} missed ${medicationName} (${dosage}) scheduled at ${scheduledTime}`,
-    icon: '/icon.png',
-    badge: '/icon.png',
-    tag: `missed-med-${Date.now()}`,
+    icon: '/icon.ico',
+    badge: '/icon.ico',
+    tag: stableTag,
     requireInteraction: true,
+    renotify: true, // Allow re-notification with same tag (vibrate/sound again)
     data: {
       type: 'missed_medication',
       patientName,
@@ -298,8 +307,8 @@ export async function sendPrescriptionExpiringPush({
   const payload = {
     title: `${urgency} Prescription Ending Soon`,
     body: `${patientName}'s ${medicationName} prescription ends ${timeText}`,
-    icon: '/icon.png',
-    badge: '/icon.png',
+    icon: '/icon.ico',
+    badge: '/icon.ico',
     tag: `expiring-${Date.now()}`,
     data: {
       type: 'prescription_expiring',
@@ -320,8 +329,8 @@ export async function sendTestPushNotification(userId) {
   return sendPushNotification(userId, {
     title: '🔔 Test Notification',
     body: 'Push notifications are working! You will receive alerts about patient medications.',
-    icon: '/icon.png',
-    badge: '/icon.png',
+    icon: '/icon.ico',
+    badge: '/icon.ico',
     tag: 'test-notification',
     data: {
       type: 'test',

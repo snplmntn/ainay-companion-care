@@ -9,6 +9,7 @@ import {
   recordReminderNotification,
 } from './supabase.js';
 import { sendMedicationReminderEmail, isEmailConfigured } from './email.js';
+import { sendPatientReminderTelegram, isTelegramConfigured } from './telegramBot.js';
 
 // Configuration
 const REMINDER_CONFIG = {
@@ -175,51 +176,77 @@ export async function checkAndSendPatientReminders() {
 
   console.log(`[PatientReminders] Sending ${remindersToSend.length} reminder(s)`);
 
-  // Step 4: Send reminders
+  // Step 4: Send reminders (both Email and Telegram)
   for (const reminder of remindersToSend) {
     const { patient, medication, scheduledTime, minutesUntil } = reminder;
     
-    if (!patient.email) {
-      console.log(`[PatientReminders] Patient ${patient.name} has no email`);
-      continue;
-    }
-
     console.log(`[PatientReminders] Sending reminder to ${patient.name} for ${medication.name}`);
 
-    try {
-      const emailResult = await sendMedicationReminderEmail({
-        patientName: patient.name,
-        patientEmail: patient.email,
-        medicationName: medication.name,
-        dosage: medication.dosage,
-        scheduledTime,
-        minutesUntil,
-      });
+    let emailSent = false;
+    let telegramSent = false;
 
-      if (emailResult.success) {
-        results.sent++;
-        results.details.push({
-          patient: patient.name,
-          medication: medication.name,
+    // Send Email reminder
+    if (patient.email && isEmailConfigured()) {
+      try {
+        const emailResult = await sendMedicationReminderEmail({
+          patientName: patient.name,
+          patientEmail: patient.email,
+          medicationName: medication.name,
+          dosage: medication.dosage,
           scheduledTime,
           minutesUntil,
         });
-
-        // Record the notification
-        await recordReminderNotification({
-          patientId: patient.id,
-          medicationId: medication.id,
-          recipientEmail: patient.email,
-          message: `Reminder for ${medication.name} (${medication.dosage}) at ${scheduledTime}`,
-          scheduledTime,
-          status: 'sent',
-        });
-      } else {
-        results.errors.push(`Failed to send reminder to ${patient.name}: ${emailResult.error}`);
+        emailSent = emailResult.success;
+        if (!emailResult.success) {
+          results.errors.push(`Failed to send email to ${patient.name}: ${emailResult.error}`);
+        }
+      } catch (error) {
+        console.error(`[PatientReminders] Email error for ${patient.name}:`, error);
+        results.errors.push(`Email error for ${patient.name}: ${error.message}`);
       }
-    } catch (error) {
-      console.error(`[PatientReminders] Error sending reminder to ${patient.name}:`, error);
-      results.errors.push(`Error sending reminder to ${patient.name}: ${error.message}`);
+    }
+
+    // Send Telegram reminder (if patient has Telegram linked)
+    if (patient.telegram_chat_id && isTelegramConfigured()) {
+      try {
+        const telegramResult = await sendPatientReminderTelegram({
+          patientId: patient.id,
+          medicationName: medication.name,
+          dosage: medication.dosage,
+          scheduledTime,
+          minutesUntil,
+        });
+        telegramSent = telegramResult.success;
+        if (telegramSent) {
+          console.log(`[PatientReminders] Telegram sent to ${patient.name}`);
+        }
+      } catch (error) {
+        console.error(`[PatientReminders] Telegram error for ${patient.name}:`, error);
+      }
+    }
+
+    // Count as sent if either channel succeeded
+    if (emailSent || telegramSent) {
+      results.sent++;
+      results.details.push({
+        patient: patient.name,
+        medication: medication.name,
+        scheduledTime,
+        minutesUntil,
+        channels: { email: emailSent, telegram: telegramSent },
+      });
+
+      // Record the notification
+      await recordReminderNotification({
+        patientId: patient.id,
+        medicationId: medication.id,
+        recipientEmail: patient.email || null,
+        message: `Reminder for ${medication.name} (${medication.dosage}) at ${scheduledTime}`,
+        scheduledTime,
+        status: 'sent',
+      });
+    } else if (!patient.email && !patient.telegram_chat_id) {
+      console.log(`[PatientReminders] Patient ${patient.name} has no contact method (email or Telegram)`);
     }
   }
 

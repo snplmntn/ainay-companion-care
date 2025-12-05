@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { transcribeAudio } from "@/services/openai";
+import { transcribeAudio, TranscribeOptions } from "@/services/openai";
+import { SupportedLanguage } from "@/services/language";
 
 interface UseVoiceRecordingOptions {
   onTranscription?: (text: string) => void;
   onError?: (error: Error) => void;
+  language?: SupportedLanguage;
 }
 
 interface UseVoiceRecordingReturn {
@@ -18,11 +20,12 @@ interface UseVoiceRecordingReturn {
 /**
  * Custom hook for voice recording with Whisper transcription
  * OPTIMIZATION: Extracted from ChatInterface for reusability and maintainability
+ * ENHANCED: Supports language selection and medicine-aware transcription
  */
 export function useVoiceRecording(
   options: UseVoiceRecordingOptions = {}
 ): UseVoiceRecordingReturn {
-  const { onTranscription, onError } = options;
+  const { onTranscription, onError, language = "en" } = options;
 
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -98,7 +101,11 @@ export function useVoiceRecording(
         if (audioBlob.size > 0) {
           setIsProcessing(true);
           try {
-            const transcribedText = await transcribeAudio(audioBlob);
+            // Pass language and enable medicine-aware prompting
+            const transcribedText = await transcribeAudio(audioBlob, {
+              language,
+              useMedicinePrompt: true,
+            });
             if (transcribedText && onTranscription) {
               onTranscription(transcribedText);
             }
@@ -129,7 +136,7 @@ export function useVoiceRecording(
         );
       }
     }
-  }, [onTranscription, onError]);
+  }, [onTranscription, onError, language]);
 
   const stopRecording = useCallback(() => {
     if (

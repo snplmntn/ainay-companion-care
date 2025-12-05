@@ -1,7 +1,7 @@
 // ============================================
 // Notification Service - Missed Dose Detection & Alerts
 // OPTIMIZED: Batch processing and parallel operations
-// TIERED: Push notifications first, then email
+// TIERED: Push → Telegram → Email notifications
 // ============================================
 
 import {
@@ -12,9 +12,10 @@ import {
 } from './supabase.js';
 import { sendMissedMedicationEmail, isEmailConfigured } from './email.js';
 import { sendMissedMedicationPush, isPushNotificationConfigured } from './pushNotifications.js';
+import { sendMissedMedicationTelegram, isTelegramConfigured } from './telegramBot.js';
 
 // Configuration - Tiered notification thresholds
-// Push notifications come FIRST, email comes LATER
+// Push/Telegram come FIRST, email comes LATER
 const NOTIFICATION_CONFIG = {
   // === PUSH NOTIFICATION THRESHOLDS ===
   // First push notification (30 seconds = 0.5 minutes)
@@ -22,8 +23,12 @@ const NOTIFICATION_CONFIG = {
   // Second push reminder (1 minute)
   PUSH_SECOND_THRESHOLD_MINUTES: parseFloat(process.env.PUSH_SECOND_THRESHOLD || '1'),
   
+  // === TELEGRAM NOTIFICATION THRESHOLD ===
+  // Telegram notification (1.5 minutes) - between push and email
+  TELEGRAM_THRESHOLD_MINUTES: parseFloat(process.env.TELEGRAM_THRESHOLD || '1.5'),
+  
   // === EMAIL NOTIFICATION THRESHOLD ===
-  // Email notification (3 minutes) - sent AFTER push notifications
+  // Email notification (3 minutes) - sent AFTER push/telegram notifications
   EMAIL_THRESHOLD_MINUTES: parseFloat(process.env.EMAIL_THRESHOLD || '3'),
   
   // Maximum minutes past scheduled time to still send notification (avoid old notifications)
@@ -101,24 +106,26 @@ async function processBatched(items, fn, concurrency) {
  * Notification Timeline:
  * - 30 seconds (0.5 min): First push notification
  * - 1 minute: Second push notification (reminder)
+ * - 1.5 minutes: Telegram notification
  * - 3 minutes: Email notification
  * 
- * Push notifications are sent BEFORE email to give instant alerts
+ * Push/Telegram notifications are sent BEFORE email to give instant alerts
  */
 export async function checkAndNotifyMissedDoses() {
   if (!NOTIFICATION_CONFIG.ENABLED) {
     console.log('[Notifications] Notifications are disabled');
-    return { checked: 0, notified: 0, pushSent: 0, emailSent: 0, errors: [] };
+    return { checked: 0, notified: 0, pushSent: 0, telegramSent: 0, emailSent: 0, errors: [] };
   }
 
   console.log('[Notifications] Checking for missed doses (tiered notifications)...');
-  console.log(`[Notifications] Thresholds - Push1: ${NOTIFICATION_CONFIG.PUSH_FIRST_THRESHOLD_MINUTES}min, Push2: ${NOTIFICATION_CONFIG.PUSH_SECOND_THRESHOLD_MINUTES}min, Email: ${NOTIFICATION_CONFIG.EMAIL_THRESHOLD_MINUTES}min`);
+  console.log(`[Notifications] Thresholds - Push1: ${NOTIFICATION_CONFIG.PUSH_FIRST_THRESHOLD_MINUTES}min, Push2: ${NOTIFICATION_CONFIG.PUSH_SECOND_THRESHOLD_MINUTES}min, Telegram: ${NOTIFICATION_CONFIG.TELEGRAM_THRESHOLD_MINUTES}min, Email: ${NOTIFICATION_CONFIG.EMAIL_THRESHOLD_MINUTES}min`);
   
   const now = new Date();
   const results = {
     checked: 0,
     notified: 0,
     pushSent: 0,
+    telegramSent: 0,
     emailSent: 0,
     errors: [],
     details: [],
@@ -143,6 +150,7 @@ export async function checkAndNotifyMissedDoses() {
   // STEP 2: Categorize medications by notification tier
   const pushFirstMeds = [];   // >= 30 seconds
   const pushSecondMeds = [];  // >= 1 minute  
+  const telegramMeds = [];    // >= 1.5 minutes
   const emailMeds = [];       // >= 3 minutes
   
   for (const med of medications) {
@@ -173,6 +181,9 @@ export async function checkAndNotifyMissedDoses() {
     if (minutesMissed >= NOTIFICATION_CONFIG.EMAIL_THRESHOLD_MINUTES) {
       emailMeds.push(medWithTime);
     }
+    if (minutesMissed >= NOTIFICATION_CONFIG.TELEGRAM_THRESHOLD_MINUTES) {
+      telegramMeds.push(medWithTime);
+    }
     if (minutesMissed >= NOTIFICATION_CONFIG.PUSH_SECOND_THRESHOLD_MINUTES) {
       pushSecondMeds.push(medWithTime);
     }
@@ -181,7 +192,7 @@ export async function checkAndNotifyMissedDoses() {
     }
   }
 
-  console.log(`[Notifications] Tier counts - Push1: ${pushFirstMeds.length}, Push2: ${pushSecondMeds.length}, Email: ${emailMeds.length}`);
+  console.log(`[Notifications] Tier counts - Push1: ${pushFirstMeds.length}, Push2: ${pushSecondMeds.length}, Telegram: ${telegramMeds.length}, Email: ${emailMeds.length}`);
 
   if (pushFirstMeds.length === 0) {
     console.log('[Notifications] No medications past first threshold');
@@ -189,7 +200,7 @@ export async function checkAndNotifyMissedDoses() {
   }
 
   // STEP 3: Batch fetch companions for all affected patients
-  const allMeds = [...new Map([...pushFirstMeds, ...pushSecondMeds, ...emailMeds].map(m => [m.id, m])).values()];
+  const allMeds = [...new Map([...pushFirstMeds, ...pushSecondMeds, ...telegramMeds, ...emailMeds].map(m => [m.id, m])).values()];
   const patientIds = [...new Set(allMeds.map(m => m.user_id))];
   const { companionsByPatient, error: companionError } = await getLinkedCompanionsForPatients(patientIds);
   
@@ -228,6 +239,7 @@ export async function checkAndNotifyMissedDoses() {
             dosage: med.dosage,
             scheduledTime: med.scheduledTime,
             minutesMissed: med.minutesMissed,
+            medicationId: med.id,
           });
           
           if (pushResult.success) {
@@ -274,6 +286,7 @@ export async function checkAndNotifyMissedDoses() {
             dosage: med.dosage,
             scheduledTime: med.scheduledTime,
             minutesMissed: med.minutesMissed,
+            medicationId: med.id,
           });
           
           if (pushResult.success) {
@@ -300,7 +313,53 @@ export async function checkAndNotifyMissedDoses() {
     }
   }
 
-  // STEP 5C: Send EMAIL notifications (3 minutes threshold)
+  // STEP 5C: Send TELEGRAM notifications (1.5 minutes threshold)
+  if (isTelegramConfigured() && telegramMeds.length > 0) {
+    console.log(`[Notifications] Processing ${telegramMeds.length} Telegram notifications...`);
+    
+    for (const med of telegramMeds) {
+      const companions = companionsByPatient.get(med.user_id) || [];
+      const patientName = med.user?.name || 'Your patient';
+      
+      for (const companion of companions) {
+        const pairKey = `${med.id}|${companion.id}|telegram`;
+        if (sentPairs.has(pairKey)) continue;
+        
+        try {
+          const telegramResult = await sendMissedMedicationTelegram({
+            companionId: companion.id,
+            patientName,
+            medicationName: med.name,
+            dosage: med.dosage,
+            scheduledTime: med.scheduledTime,
+            minutesMissed: med.minutesMissed,
+          });
+          
+          if (telegramResult.success) {
+            results.telegramSent++;
+            results.notified++;
+            console.log(`[Notifications] 📱 Telegram sent to ${companion.name} for ${med.name}`);
+            
+            notificationRecords.push({
+              patientId: med.user_id,
+              companionId: companion.id,
+              medicationId: med.id,
+              type: 'missed_medication_telegram',
+              channel: 'telegram',
+              recipientEmail: companion.email,
+              message: `[TELEGRAM] ${patientName} missed ${med.name}`,
+              scheduledTime: med.scheduledTime,
+              status: 'sent',
+            });
+          }
+        } catch (error) {
+          console.error(`[Notifications] Telegram failed for ${companion.name}:`, error.message);
+        }
+      }
+    }
+  }
+
+  // STEP 5D: Send EMAIL notifications (3 minutes threshold)
   if (isEmailConfigured() && emailMeds.length > 0) {
     console.log(`[Notifications] Processing ${emailMeds.length} email notifications...`);
     
@@ -366,7 +425,7 @@ export async function checkAndNotifyMissedDoses() {
     }
   }
   
-  console.log(`[Notifications] Complete: ${results.pushSent} push + ${results.emailSent} email = ${results.notified} total`);
+  console.log(`[Notifications] Complete: ${results.pushSent} push + ${results.telegramSent} telegram + ${results.emailSent} email = ${results.notified} total`);
   return results;
 }
 
@@ -378,9 +437,11 @@ export function getNotificationStatus() {
     enabled: NOTIFICATION_CONFIG.ENABLED,
     emailConfigured: isEmailConfigured(),
     pushConfigured: isPushNotificationConfigured(),
+    telegramConfigured: isTelegramConfigured(),
     thresholds: {
       pushFirst: `${NOTIFICATION_CONFIG.PUSH_FIRST_THRESHOLD_MINUTES} min (${NOTIFICATION_CONFIG.PUSH_FIRST_THRESHOLD_MINUTES * 60} sec)`,
       pushSecond: `${NOTIFICATION_CONFIG.PUSH_SECOND_THRESHOLD_MINUTES} min`,
+      telegram: `${NOTIFICATION_CONFIG.TELEGRAM_THRESHOLD_MINUTES} min`,
       email: `${NOTIFICATION_CONFIG.EMAIL_THRESHOLD_MINUTES} min`,
     },
     maxNotificationWindow: NOTIFICATION_CONFIG.MAX_MINUTES_PAST,

@@ -19,6 +19,51 @@ import { toast } from "@/hooks/use-toast";
 import { type Medication } from "@/types";
 import { EditMedicineModal } from "./EditMedicineModal";
 
+// Check if a dose can be taken (within 30 minutes before scheduled time or later)
+// Only applies to patients - companions have no restriction
+function canTakeDose(timeStr: string): boolean {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  
+  // Parse time string (supports both "8:00 AM" and "14:30" formats)
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return true; // If can't parse, allow action
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const period = match[3]?.toUpperCase();
+  
+  if (period === "PM" && hours !== 12) hours += 12;
+  if (period === "AM" && hours === 12) hours = 0;
+  
+  const scheduledMinutes = hours * 60 + minutes;
+  
+  // Allow if current time is 30 minutes before scheduled time or later
+  // (scheduledMinutes - 30) is the earliest valid time
+  return currentMinutes >= scheduledMinutes - 30;
+}
+
+// Get minutes until dose can be taken (for display)
+function getMinutesUntilCanTake(timeStr: string): number {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return 0;
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const period = match[3]?.toUpperCase();
+  
+  if (period === "PM" && hours !== 12) hours += 12;
+  if (period === "AM" && hours === 12) hours = 0;
+  
+  const scheduledMinutes = hours * 60 + minutes;
+  const canTakeAt = scheduledMinutes - 30;
+  
+  return Math.max(0, canTakeAt - currentMinutes);
+}
+
 // Represents a single scheduled dose entry for display
 interface DoseEntry {
   medicationId: string;
@@ -57,8 +102,8 @@ const TIME_GROUPS: TimeGroup[] = [
     icon: <Sunrise className="w-6 h-6" />,
     startHour: 5,
     endHour: 12,
-    color: "text-amber-600",
-    bgColor: "bg-amber-50 dark:bg-amber-950/30",
+    color: "text-amber-700 dark:text-amber-300",
+    bgColor: "bg-gradient-to-r from-amber-100 via-orange-50 to-yellow-100 dark:from-amber-900/50 dark:via-orange-900/40 dark:to-yellow-900/50 border border-amber-200/60 dark:border-amber-700/40",
   },
   {
     period: "afternoon",
@@ -66,8 +111,8 @@ const TIME_GROUPS: TimeGroup[] = [
     icon: <Sun className="w-6 h-6" />,
     startHour: 12,
     endHour: 17,
-    color: "text-orange-500",
-    bgColor: "bg-orange-50 dark:bg-orange-950/30",
+    color: "text-orange-600 dark:text-orange-300",
+    bgColor: "bg-gradient-to-r from-orange-100 via-amber-50 to-orange-100 dark:from-orange-900/50 dark:via-amber-900/40 dark:to-orange-900/50 border border-orange-200/60 dark:border-orange-700/40",
   },
   {
     period: "evening",
@@ -75,8 +120,8 @@ const TIME_GROUPS: TimeGroup[] = [
     icon: <Sunset className="w-6 h-6" />,
     startHour: 17,
     endHour: 21,
-    color: "text-purple-500",
-    bgColor: "bg-purple-50 dark:bg-purple-950/30",
+    color: "text-purple-600 dark:text-purple-300",
+    bgColor: "bg-gradient-to-r from-purple-100 via-pink-50 to-rose-100 dark:from-purple-900/50 dark:via-pink-900/40 dark:to-rose-900/50 border border-purple-200/60 dark:border-purple-700/40",
   },
   {
     period: "night",
@@ -84,8 +129,8 @@ const TIME_GROUPS: TimeGroup[] = [
     icon: <Moon className="w-6 h-6" />,
     startHour: 21,
     endHour: 5,
-    color: "text-indigo-500",
-    bgColor: "bg-indigo-50 dark:bg-indigo-950/30",
+    color: "text-indigo-600 dark:text-indigo-300",
+    bgColor: "bg-gradient-to-r from-indigo-100 via-blue-50 to-slate-100 dark:from-indigo-900/50 dark:via-blue-900/40 dark:to-slate-900/50 border border-indigo-200/60 dark:border-indigo-700/40",
   },
 ];
 
@@ -140,6 +185,8 @@ function PendingMedicationCard({
   expanded,
   onToggleExpand,
   isLoading,
+  canTake,
+  minutesUntilCanTake,
 }: {
   dose: DoseEntry;
   onTake: () => void;
@@ -147,8 +194,11 @@ function PendingMedicationCard({
   expanded: boolean;
   onToggleExpand: () => void;
   isLoading: boolean;
+  canTake: boolean;
+  minutesUntilCanTake: number;
 }) {
   const hasDetails = dose.instructions || dose.imageUrl;
+  const isDisabled = isLoading || !canTake;
 
   return (
     <div className="rounded-2xl border-2 border-border bg-card shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden h-fit">
@@ -173,6 +223,13 @@ function PendingMedicationCard({
             <p className="text-base lg:text-lg text-muted-foreground mt-0.5 lg:mt-1">
               {dose.dosage}
             </p>
+            {/* Show time restriction message for patients */}
+            {!canTake && minutesUntilCanTake > 0 && (
+              <p className="text-sm text-amber-600 mt-1 flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                Available in {minutesUntilCanTake} min
+              </p>
+            )}
           </div>
 
           {/* Take button */}
@@ -180,8 +237,9 @@ function PendingMedicationCard({
             variant="coral"
             size="icon-lg"
             onClick={onTake}
-            disabled={isLoading}
-            className="rounded-2xl shrink-0 w-14 h-14 lg:w-16 lg:h-16"
+            disabled={isDisabled}
+            className={`rounded-2xl shrink-0 w-14 h-14 lg:w-16 lg:h-16 ${!canTake ? 'opacity-50' : ''}`}
+            title={!canTake ? `Available 30 min before scheduled time` : undefined}
           >
             {isLoading ? (
               <Loader2 className="w-6 h-6 animate-spin" />
@@ -289,7 +347,8 @@ function CompletedMedicationRow({
 }
 
 export function MedicationTimeline() {
-  const { medications, toggleMedication, toggleDose } = useApp();
+  const { medications, toggleMedication, toggleDose, userRole } = useApp();
+  const isPatient = userRole === "patient";
   const [editingMedication, setEditingMedication] = useState<Medication | null>(
     null
   );
@@ -502,15 +561,17 @@ export function MedicationTimeline() {
               <div key={group.period} className="space-y-3 lg:space-y-4">
                 {/* Time period header */}
                 <div
-                  className={`flex items-center gap-2 px-3 lg:px-4 py-2 lg:py-3 rounded-lg lg:rounded-xl ${group.bgColor}`}
+                  className={`flex items-center gap-3 px-4 lg:px-5 py-3 lg:py-4 rounded-xl lg:rounded-2xl shadow-sm ${group.bgColor}`}
                 >
-                  <span className={group.color}>{group.icon}</span>
+                  <div className={`p-2 rounded-lg bg-white/50 dark:bg-black/20 ${group.color}`}>
+                    {group.icon}
+                  </div>
                   <span
                     className={`text-lg lg:text-xl font-bold ${group.color}`}
                   >
                     {group.label}
                   </span>
-                  <span className="ml-auto text-sm lg:text-base text-muted-foreground font-medium">
+                  <span className={`ml-auto text-sm lg:text-base font-semibold ${group.color} opacity-80`}>
                     {groupDoses.length} left
                   </span>
                 </div>
@@ -524,6 +585,9 @@ export function MedicationTimeline() {
                     const loadingKey = dose.doseId
                       ? `${dose.medicationId}-${dose.doseId}`
                       : dose.medicationId;
+                    // Only apply time restriction for patients
+                    const doseCanTake = isPatient ? canTakeDose(dose.time) : true;
+                    const minutesUntil = isPatient ? getMinutesUntilCanTake(dose.time) : 0;
                     return (
                       <PendingMedicationCard
                         key={cardId}
@@ -540,6 +604,8 @@ export function MedicationTimeline() {
                         expanded={expandedCards.has(cardId)}
                         onToggleExpand={() => toggleCardExpand(cardId)}
                         isLoading={loadingMedIds.has(loadingKey)}
+                        canTake={doseCanTake}
+                        minutesUntilCanTake={minutesUntil}
                       />
                     );
                   })}

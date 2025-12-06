@@ -193,7 +193,7 @@ export default function CompanionDashboard() {
       </header>
 
       {/* Content */}
-      <main className="p-4 space-y-6 -mt-4">
+      <main className="p-4 space-y-6 mt-4">
         {/* Attention Alert - Only shows for OVERDUE doses (past scheduled time) */}
         {patientsNeedingAttention.length > 0 && (
           <div className="card-senior border-2 border-amber-300 bg-amber-50">

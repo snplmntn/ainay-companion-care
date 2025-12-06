@@ -19,6 +19,51 @@ import { toast } from "@/hooks/use-toast";
 import { type Medication } from "@/types";
 import { EditMedicineModal } from "./EditMedicineModal";
 
+// Check if a dose can be taken (within 30 minutes before scheduled time or later)
+// Only applies to patients - companions have no restriction
+function canTakeDose(timeStr: string): boolean {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  
+  // Parse time string (supports both "8:00 AM" and "14:30" formats)
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return true; // If can't parse, allow action
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const period = match[3]?.toUpperCase();
+  
+  if (period === "PM" && hours !== 12) hours += 12;
+  if (period === "AM" && hours === 12) hours = 0;
+  
+  const scheduledMinutes = hours * 60 + minutes;
+  
+  // Allow if current time is 30 minutes before scheduled time or later
+  // (scheduledMinutes - 30) is the earliest valid time
+  return currentMinutes >= scheduledMinutes - 30;
+}
+
+// Get minutes until dose can be taken (for display)
+function getMinutesUntilCanTake(timeStr: string): number {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return 0;
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const period = match[3]?.toUpperCase();
+  
+  if (period === "PM" && hours !== 12) hours += 12;
+  if (period === "AM" && hours === 12) hours = 0;
+  
+  const scheduledMinutes = hours * 60 + minutes;
+  const canTakeAt = scheduledMinutes - 30;
+  
+  return Math.max(0, canTakeAt - currentMinutes);
+}
+
 // Represents a single scheduled dose entry for display
 interface DoseEntry {
   medicationId: string;
@@ -140,6 +185,8 @@ function PendingMedicationCard({
   expanded,
   onToggleExpand,
   isLoading,
+  canTake,
+  minutesUntilCanTake,
 }: {
   dose: DoseEntry;
   onTake: () => void;
@@ -147,8 +194,11 @@ function PendingMedicationCard({
   expanded: boolean;
   onToggleExpand: () => void;
   isLoading: boolean;
+  canTake: boolean;
+  minutesUntilCanTake: number;
 }) {
   const hasDetails = dose.instructions || dose.imageUrl;
+  const isDisabled = isLoading || !canTake;
 
   return (
     <div className="rounded-2xl border-2 border-border bg-card shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden h-fit">
@@ -173,6 +223,13 @@ function PendingMedicationCard({
             <p className="text-base lg:text-lg text-muted-foreground mt-0.5 lg:mt-1">
               {dose.dosage}
             </p>
+            {/* Show time restriction message for patients */}
+            {!canTake && minutesUntilCanTake > 0 && (
+              <p className="text-sm text-amber-600 mt-1 flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                Available in {minutesUntilCanTake} min
+              </p>
+            )}
           </div>
 
           {/* Take button */}
@@ -180,8 +237,9 @@ function PendingMedicationCard({
             variant="coral"
             size="icon-lg"
             onClick={onTake}
-            disabled={isLoading}
-            className="rounded-2xl shrink-0 w-14 h-14 lg:w-16 lg:h-16"
+            disabled={isDisabled}
+            className={`rounded-2xl shrink-0 w-14 h-14 lg:w-16 lg:h-16 ${!canTake ? 'opacity-50' : ''}`}
+            title={!canTake ? `Available 30 min before scheduled time` : undefined}
           >
             {isLoading ? (
               <Loader2 className="w-6 h-6 animate-spin" />
@@ -289,7 +347,8 @@ function CompletedMedicationRow({
 }
 
 export function MedicationTimeline() {
-  const { medications, toggleMedication, toggleDose } = useApp();
+  const { medications, toggleMedication, toggleDose, userRole } = useApp();
+  const isPatient = userRole === "patient";
   const [editingMedication, setEditingMedication] = useState<Medication | null>(
     null
   );
@@ -526,6 +585,9 @@ export function MedicationTimeline() {
                     const loadingKey = dose.doseId
                       ? `${dose.medicationId}-${dose.doseId}`
                       : dose.medicationId;
+                    // Only apply time restriction for patients
+                    const doseCanTake = isPatient ? canTakeDose(dose.time) : true;
+                    const minutesUntil = isPatient ? getMinutesUntilCanTake(dose.time) : 0;
                     return (
                       <PendingMedicationCard
                         key={cardId}
@@ -542,6 +604,8 @@ export function MedicationTimeline() {
                         expanded={expandedCards.has(cardId)}
                         onToggleExpand={() => toggleCardExpand(cardId)}
                         isLoading={loadingMedIds.has(loadingKey)}
+                        canTake={doseCanTake}
+                        minutesUntilCanTake={minutesUntil}
                       />
                     );
                   })}

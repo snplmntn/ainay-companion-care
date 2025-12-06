@@ -12,6 +12,50 @@ import { FeatureGate, useSubscription, FREE_TIER_MAX_MEDICATIONS } from "@/modul
 import { RefillReminders } from "@/modules/medication";
 import { toast } from "@/hooks/use-toast";
 
+// Check if a dose can be taken (within 30 minutes before scheduled time or later)
+// Only applies to patients
+function canTakeDose(timeStr: string): boolean {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  
+  // Parse time string (supports both "8:00 AM" and "14:30" formats)
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return true; // If can't parse, allow action
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const period = match[3]?.toUpperCase();
+  
+  if (period === "PM" && hours !== 12) hours += 12;
+  if (period === "AM" && hours === 12) hours = 0;
+  
+  const scheduledMinutes = hours * 60 + minutes;
+  
+  // Allow if current time is 30 minutes before scheduled time or later
+  return currentMinutes >= scheduledMinutes - 30;
+}
+
+// Get minutes until dose can be taken (for display)
+function getMinutesUntilCanTake(timeStr: string): number {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return 0;
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const period = match[3]?.toUpperCase();
+  
+  if (period === "PM" && hours !== 12) hours += 12;
+  if (period === "AM" && hours === 12) hours = 0;
+  
+  const scheduledMinutes = hours * 60 + minutes;
+  const canTakeAt = scheduledMinutes - 30;
+  
+  return Math.max(0, canTakeAt - currentMinutes);
+}
+
 // Weather icon based on condition
 function WeatherIcon({
   condition,
@@ -136,6 +180,8 @@ function DesktopSidebar({
   onTakeNext,
   onAddMed,
   isTakingMed,
+  canTakeNext,
+  minutesUntilCanTake,
 }: {
   userName: string;
   currentTime: Date;
@@ -150,6 +196,8 @@ function DesktopSidebar({
   onTakeNext: () => void;
   onAddMed: () => void;
   isTakingMed: boolean;
+  canTakeNext: boolean;
+  minutesUntilCanTake: number;
 }) {
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -236,12 +284,20 @@ function DesktopSidebar({
           </div>
           <h3 className="text-xl font-bold mb-0.5 truncate">{nextMed.name}</h3>
           <p className="text-base text-muted-foreground mb-3">{nextMed.dosage}</p>
+          {/* Time restriction message for patients */}
+          {!canTakeNext && minutesUntilCanTake > 0 && (
+            <p className="text-sm text-amber-600 mb-2 flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              Available in {minutesUntilCanTake} min
+            </p>
+          )}
           <Button
             variant="coral"
             size="lg"
             onClick={onTakeNext}
-            disabled={isTakingMed}
-            className="w-full rounded-xl"
+            disabled={isTakingMed || !canTakeNext}
+            className={`w-full rounded-xl ${!canTakeNext ? 'opacity-50' : ''}`}
+            title={!canTakeNext ? 'Available 30 min before scheduled time' : undefined}
           >
             {isTakingMed ? (
               <>
@@ -331,6 +387,10 @@ export default function Dashboard() {
   const progress = totalCount > 0 ? Math.round((takenCount / totalCount) * 100) : 0;
   const pendingCount = totalCount - takenCount;
   const allDone = takenCount === totalCount && totalCount > 0;
+  
+  // Time restriction for patients - can only take 30 min before scheduled time
+  const canTakeNext = nextMed ? canTakeDose(nextMed.time) : false;
+  const minutesUntilCanTake = nextMed ? getMinutesUntilCanTake(nextMed.time) : 0;
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -393,6 +453,8 @@ export default function Dashboard() {
         onTakeNext={handleTakeNext}
         onAddMed={handleAddMed}
         isTakingMed={isTakingMed}
+        canTakeNext={canTakeNext}
+        minutesUntilCanTake={minutesUntilCanTake}
       />
 
       {/* Main Content Area */}
@@ -508,14 +570,22 @@ export default function Dashboard() {
                 </div>
                 <p className="text-xl font-bold truncate">{nextMed.name}</p>
                 <p className="text-base text-muted-foreground">{nextMed.dosage}</p>
+                {/* Time restriction message for patients */}
+                {!canTakeNext && minutesUntilCanTake > 0 && (
+                  <p className="text-sm text-amber-600 mt-1 flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    Available in {minutesUntilCanTake} min
+                  </p>
+                )}
               </div>
               
               <Button
                 variant="coral"
                 size="xl"
                 onClick={handleTakeNext}
-                disabled={isTakingMed}
-                className="rounded-2xl px-6 shrink-0 text-lg"
+                disabled={isTakingMed || !canTakeNext}
+                className={`rounded-2xl px-6 shrink-0 text-lg ${!canTakeNext ? 'opacity-50' : ''}`}
+                title={!canTakeNext ? 'Available 30 min before scheduled time' : undefined}
               >
                 {isTakingMed ? (
                   <>

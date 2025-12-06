@@ -56,7 +56,7 @@ export const WEATHER_DESCRIPTIONS: Record<string, string> = {
   'default': 'nice',
 };
 
-// Weather advice for seniors
+// Weather advice
 export const WEATHER_ADVICE: Record<string, string> = {
   rain: "Don't forget your umbrella or jacket if you go outside",
   hot: "Stay hydrated and avoid going out during peak sun hours",
@@ -68,7 +68,7 @@ export const WEATHER_ADVICE: Record<string, string> = {
 
 // TTS Configuration
 export const TTS_VOICE = 'nova'; // Warm, friendly female voice
-export const TTS_SPEED = 0.9; // Slightly slower for seniors
+export const TTS_SPEED = 0.9; // Slightly slower for clarity
 
 // Radio Show Branding
 export const RADIO_SHOW_NAME = 'Ainay Care';
@@ -92,7 +92,7 @@ SCRIPT STRUCTURE (4-6 sentences, about 45 seconds):
 
 TONE GUIDELINES:
 - Sound like a warm, caring friend or friendly neighbor
-- Use simple, clear language appropriate for seniors
+- Use simple, clear language that anyone can understand
 - Be genuinely warm - this is their personal radio show just for them
 - Add small touches of personality and care
 - If it's a special day/holiday, make it feel celebratory

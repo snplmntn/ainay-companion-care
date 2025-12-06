@@ -135,7 +135,7 @@ The OpenAI API key is configured in `.env.local` (see Environment Setup above).
 
 ## Morning Briefing ("Health Radio") Feature
 
-A personalized audio briefing that plays when users open the app - like a friendly health radio station for seniors.
+A personalized audio briefing that plays when users open the app - like a friendly health radio station for anyone managing their medications.
 
 ### How it works
 
@@ -157,7 +157,7 @@ A personalized audio briefing that plays when users open the app - like a friend
 | Audio synthesis   | OpenAI TTS (nova) | Friendly female voice at 0.9x speed for clarity |
 | Caching           | LocalStorage      | Briefings cached for 1 hour                     |
 
-> **Why it wins**: Audio demos are powerful in a loud hackathon hall. It shows accessibility for the blind/elderly.
+> **Why it wins**: Audio demos are powerful in a loud hackathon hall. It shows accessibility for users with visual impairments or anyone who prefers audio updates.
 
 ## How can I deploy this project?
 

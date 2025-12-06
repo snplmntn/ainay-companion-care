@@ -17,6 +17,10 @@ import CompanionDashboard from "./pages/CompanionDashboard";
 import PatientManagement from "./pages/PatientManagement";
 import Pricing from "./pages/Pricing";
 import SubscriptionSuccess from "./pages/SubscriptionSuccess";
+import References from "./pages/References";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
+import Contact from "./pages/Contact";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -119,14 +123,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/subscription/pricing"
-        element={
-          <ProtectedRoute>
-            <Pricing />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/subscription/pricing" element={<Pricing />} />
       <Route
         path="/subscription/success"
         element={
@@ -135,6 +132,10 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      <Route path="/references" element={<References />} />
+      <Route path="/privacy" element={<Privacy />} />
+      <Route path="/terms" element={<Terms />} />
+      <Route path="/contact" element={<Contact />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

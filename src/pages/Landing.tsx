@@ -219,13 +219,16 @@ export default function Landing() {
       >
         <div className="max-w-7xl mx-auto px-4 md:px-8">
           <div className="flex items-center justify-between h-16 md:h-20">
-            <div className="flex items-center gap-3">
+            <button
+              onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+              className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
+            >
               <img
                 src="/logo.png"
                 alt="AInay"
                 className="h-10 md:h-12 w-auto"
               />
-            </div>
+            </button>
             <div className="flex items-center gap-3">
               <Button
                 variant="ghost"
@@ -734,21 +737,30 @@ export default function Landing() {
       <footer className="bg-card border-t border-border py-12 md:py-16">
         <div className="max-w-7xl mx-auto px-4 md:px-8">
           <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-            <div className="flex items-center gap-3">
+            <button
+              onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+              className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
+            >
               <img src="/logo.png" alt="AInay" className="h-10 w-auto" />
               <span className="text-muted-foreground">
                 Your Digital Caretaker
               </span>
-            </div>
-            <div className="flex items-center gap-6 text-muted-foreground">
-              <a href="#" className="hover:text-primary transition-colors">
+            </button>
+            <div className="flex flex-wrap items-center justify-center md:justify-end gap-4 md:gap-6 text-muted-foreground">
+              <a href="/privacy" className="hover:text-primary transition-colors">
                 Privacy
               </a>
-              <a href="#" className="hover:text-primary transition-colors">
+              <a href="/terms" className="hover:text-primary transition-colors">
                 Terms
               </a>
-              <a href="#" className="hover:text-primary transition-colors">
+              <a href="/contact" className="hover:text-primary transition-colors">
                 Contact
+              </a>
+              <a href="/subscription/pricing" className="hover:text-primary transition-colors">
+                Pricing
+              </a>
+              <a href="/references" className="hover:text-primary transition-colors">
+                Data Sources
               </a>
             </div>
           </div>

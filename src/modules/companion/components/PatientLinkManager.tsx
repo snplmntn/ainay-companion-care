@@ -353,6 +353,9 @@ export function PatientLinkManager({
         )}
       </div>
 
+      {/* Divider */}
+      <div className="border-t border-border my-2" />
+
       {/* My Patients Section */}
       <div className="card-senior">
         <div className="flex items-center gap-3 mb-4">

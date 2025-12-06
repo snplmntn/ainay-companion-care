@@ -21,10 +21,26 @@ services:
         sync: false
       - key: PAYREX_SECRET_KEY
         sync: false
+      # Email (Brevo)
       - key: BREVO_API_KEY
         sync: false
       - key: EMAIL_FROM_NAME
         value: AInay Companion Care
       - key: EMAIL_FROM_ADDRESS
+        sync: false
+      # Telegram Bot
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        value: AInayBot
+      # Push Notifications (VAPID)
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:support@ainay.app
+      # OpenAI (for AI features)
+      - key: OPENAI_API_KEY
         sync: false
 

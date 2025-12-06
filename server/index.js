@@ -1132,11 +1132,21 @@ function startNotificationCron() {
     return;
   }
 
-  if (!isEmailConfigured()) {
-    console.log("[Cron] Email not configured, skipping notification cron");
+  // Check if ANY notification channel is configured
+  const emailOk = isEmailConfigured();
+  const pushOk = isPushNotificationConfigured();
+  const telegramOk = isTelegramConfigured();
+
+  if (!emailOk && !pushOk && !telegramOk) {
+    console.log(
+      "[Cron] No notification channels configured (email/push/telegram), skipping notification cron"
+    );
     return;
   }
 
+  console.log(
+    `[Cron] Notification channels: email=${emailOk}, push=${pushOk}, telegram=${telegramOk}`
+  );
   console.log(
     `[Cron] Starting notification check job (schedule: ${CRON_SCHEDULE})`
   );
@@ -1195,11 +1205,20 @@ function startPatientReminderCron() {
     return;
   }
 
-  if (!isEmailConfigured()) {
-    console.log("[Cron] Email not configured, skipping patient reminder cron");
+  // Check if ANY notification channel is configured for patient reminders
+  const emailOk = isEmailConfigured();
+  const telegramOk = isTelegramConfigured();
+
+  if (!emailOk && !telegramOk) {
+    console.log(
+      "[Cron] No reminder channels configured (email/telegram), skipping patient reminder cron"
+    );
     return;
   }
 
+  console.log(
+    `[Cron] Reminder channels: email=${emailOk}, telegram=${telegramOk}`
+  );
   console.log(
     `[Cron] Starting patient reminder job (schedule: ${PATIENT_REMINDER_SCHEDULE})`
   );

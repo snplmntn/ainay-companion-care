@@ -106,12 +106,12 @@ export default function References() {
             </Button>
             <button
               onClick={() => navigate("/")}
-              className="flex items-center gap-2 hover:opacity-90 transition-opacity bg-white rounded-full pl-1.5 pr-3 py-1.5 shadow-lg"
+              className="flex items-center hover:opacity-90 transition-opacity bg-white rounded-full pl-1.5 pr-3 py-1.5 shadow-lg"
             >
               <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center">
                 <span className="text-white font-bold text-sm">A</span>
               </div>
-              <span className="font-bold text-violet-600 text-sm">AInay</span>
+              <span className="font-bold text-violet-600 text-sm">Inay</span>
             </button>
           </div>
           
@@ -129,11 +129,10 @@ export default function References() {
             </div>
           </div>
         </div>
-        <div className="h-8 bg-gradient-to-b from-transparent to-slate-50 dark:to-slate-950" />
       </header>
 
       {/* Content */}
-      <main className="px-4 md:px-8 pb-12 -mt-4">
+      <main className="px-4 md:px-8 pb-12 pt-6">
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Disclaimer */}
           <div className="bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-200 dark:border-amber-800/50 rounded-3xl p-6 md:p-8">

@@ -80,12 +80,12 @@ export default function Privacy() {
             </Button>
             <button
               onClick={() => navigate("/")}
-              className="flex items-center gap-2 hover:opacity-90 transition-opacity bg-white rounded-full pl-1.5 pr-3 py-1.5 shadow-lg"
+              className="flex items-center hover:opacity-90 transition-opacity bg-white rounded-full pl-1.5 pr-3 py-1.5 shadow-lg"
             >
               <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary to-coral flex items-center justify-center">
                 <span className="text-white font-bold text-sm">A</span>
               </div>
-              <span className="font-bold text-primary text-sm">AInay</span>
+              <span className="font-bold text-primary text-sm">Inay</span>
             </button>
           </div>
           
@@ -103,11 +103,10 @@ export default function Privacy() {
             </div>
           </div>
         </div>
-        <div className="h-8 bg-gradient-to-b from-transparent to-slate-50 dark:to-slate-950" />
       </header>
 
       {/* Content */}
-      <main className="px-4 md:px-8 pb-12 -mt-4">
+      <main className="px-4 md:px-8 pb-12 pt-6">
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Last Updated */}
           <div className="text-sm text-muted-foreground text-center">

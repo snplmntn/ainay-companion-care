@@ -747,21 +747,21 @@ export default function Landing() {
               </span>
             </button>
             <div className="flex flex-wrap items-center justify-center md:justify-end gap-4 md:gap-6 text-muted-foreground">
-              <a href="/privacy" className="hover:text-primary transition-colors">
+              <Link to="/privacy" className="hover:text-primary transition-colors">
                 Privacy
-              </a>
-              <a href="/terms" className="hover:text-primary transition-colors">
+              </Link>
+              <Link to="/terms" className="hover:text-primary transition-colors">
                 Terms
-              </a>
-              <a href="/contact" className="hover:text-primary transition-colors">
+              </Link>
+              <Link to="/contact" className="hover:text-primary transition-colors">
                 Contact
-              </a>
-              <a href="/subscription/pricing" className="hover:text-primary transition-colors">
+              </Link>
+              <Link to="/subscription/pricing" className="hover:text-primary transition-colors">
                 Pricing
-              </a>
-              <a href="/references" className="hover:text-primary transition-colors">
+              </Link>
+              <Link to="/references" className="hover:text-primary transition-colors">
                 Data Sources
-              </a>
+              </Link>
             </div>
           </div>
           <div className="mt-8 pt-8 border-t border-border text-center text-muted-foreground">

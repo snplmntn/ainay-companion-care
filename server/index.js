@@ -1710,11 +1710,16 @@ app.listen(PORT, async () => {
     ? "✅ Configured"
     : "❌ Not configured";
 
+  const timezone = process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const currentTime = new Date().toLocaleString('en-PH', { timeZone: timezone });
+
   console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
 ║                    AInay Backend Server                       ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║  Server running on: http://localhost:${PORT}                     ║
+║  Timezone: ${timezone.padEnd(23)}                    ║
+║  Started:  ${currentTime.padEnd(23)}                    ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║  Services Status:                                             ║
 ║    • Supabase:      ${supabaseStatus.padEnd(20)}                ║

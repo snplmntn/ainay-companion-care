@@ -57,8 +57,8 @@ const TIME_GROUPS: TimeGroup[] = [
     icon: <Sunrise className="w-6 h-6" />,
     startHour: 5,
     endHour: 12,
-    color: "text-amber-600",
-    bgColor: "bg-amber-50 dark:bg-amber-950/30",
+    color: "text-amber-700 dark:text-amber-300",
+    bgColor: "bg-gradient-to-r from-amber-100 via-orange-50 to-yellow-100 dark:from-amber-900/50 dark:via-orange-900/40 dark:to-yellow-900/50 border border-amber-200/60 dark:border-amber-700/40",
   },
   {
     period: "afternoon",
@@ -66,8 +66,8 @@ const TIME_GROUPS: TimeGroup[] = [
     icon: <Sun className="w-6 h-6" />,
     startHour: 12,
     endHour: 17,
-    color: "text-orange-500",
-    bgColor: "bg-orange-50 dark:bg-orange-950/30",
+    color: "text-orange-600 dark:text-orange-300",
+    bgColor: "bg-gradient-to-r from-orange-100 via-amber-50 to-orange-100 dark:from-orange-900/50 dark:via-amber-900/40 dark:to-orange-900/50 border border-orange-200/60 dark:border-orange-700/40",
   },
   {
     period: "evening",
@@ -75,8 +75,8 @@ const TIME_GROUPS: TimeGroup[] = [
     icon: <Sunset className="w-6 h-6" />,
     startHour: 17,
     endHour: 21,
-    color: "text-purple-500",
-    bgColor: "bg-purple-50 dark:bg-purple-950/30",
+    color: "text-purple-600 dark:text-purple-300",
+    bgColor: "bg-gradient-to-r from-purple-100 via-pink-50 to-rose-100 dark:from-purple-900/50 dark:via-pink-900/40 dark:to-rose-900/50 border border-purple-200/60 dark:border-purple-700/40",
   },
   {
     period: "night",
@@ -84,8 +84,8 @@ const TIME_GROUPS: TimeGroup[] = [
     icon: <Moon className="w-6 h-6" />,
     startHour: 21,
     endHour: 5,
-    color: "text-indigo-500",
-    bgColor: "bg-indigo-50 dark:bg-indigo-950/30",
+    color: "text-indigo-600 dark:text-indigo-300",
+    bgColor: "bg-gradient-to-r from-indigo-100 via-blue-50 to-slate-100 dark:from-indigo-900/50 dark:via-blue-900/40 dark:to-slate-900/50 border border-indigo-200/60 dark:border-indigo-700/40",
   },
 ];
 
@@ -502,15 +502,17 @@ export function MedicationTimeline() {
               <div key={group.period} className="space-y-3 lg:space-y-4">
                 {/* Time period header */}
                 <div
-                  className={`flex items-center gap-2 px-3 lg:px-4 py-2 lg:py-3 rounded-lg lg:rounded-xl ${group.bgColor}`}
+                  className={`flex items-center gap-3 px-4 lg:px-5 py-3 lg:py-4 rounded-xl lg:rounded-2xl shadow-sm ${group.bgColor}`}
                 >
-                  <span className={group.color}>{group.icon}</span>
+                  <div className={`p-2 rounded-lg bg-white/50 dark:bg-black/20 ${group.color}`}>
+                    {group.icon}
+                  </div>
                   <span
                     className={`text-lg lg:text-xl font-bold ${group.color}`}
                   >
                     {group.label}
                   </span>
-                  <span className="ml-auto text-sm lg:text-base text-muted-foreground font-medium">
+                  <span className={`ml-auto text-sm lg:text-base font-semibold ${group.color} opacity-80`}>
                     {groupDoses.length} left
                   </span>
                 </div>

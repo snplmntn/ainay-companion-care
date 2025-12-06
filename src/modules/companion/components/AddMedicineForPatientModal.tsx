@@ -301,6 +301,17 @@ export function AddMedicineForPatientModal({
     }
   }, [isCameraOpen]);
 
+  // Callback ref to connect stream when video element mounts
+  const setVideoRef = useCallback((node: HTMLVideoElement | null) => {
+    videoRef.current = node;
+    if (node && streamRef.current) {
+      node.srcObject = streamRef.current;
+      node.play().catch((err) => {
+        console.error("Video play error:", err);
+      });
+    }
+  }, [isCameraOpen]);
+
   // ============ VOICE FUNCTIONS ============
   const stopRecording = useCallback(() => {
     if (
@@ -1267,7 +1278,7 @@ export function AddMedicineForPatientModal({
                   <>
                     <div className="relative w-full aspect-[4/3] bg-black rounded-2xl overflow-hidden mb-4">
                       <video
-                        ref={videoRef}
+                        ref={setVideoRef}
                         autoPlay
                         playsInline
                         muted
@@ -2129,7 +2140,7 @@ export function AddMedicineForPatientModal({
           </div>
           <div className="flex-1 relative">
             <video
-              ref={videoRef}
+              ref={setVideoRef}
               autoPlay
               playsInline
               muted

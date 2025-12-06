@@ -141,3 +141,4 @@ export function validateMedicines(
 // Re-export types
 export type { DetectedMedicine, ExtractedMedicine };
 
+

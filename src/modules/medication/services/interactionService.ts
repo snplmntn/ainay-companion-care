@@ -1,6 +1,10 @@
 // ============================================
 // Drug Interaction Checking Service
 // OPTIMIZED: Uses indexed lookups for O(1) access
+//
+// DATA SOURCE:
+// Drug-Drug Interactions Management and Safer Alternatives (Kaggle)
+// https://www.kaggle.com/datasets/shayanhusain/drug-drug-interactions-management-and-safer-alters
 // ============================================
 
 import type { Medication } from "@/types";

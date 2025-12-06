@@ -61,6 +61,18 @@ This project is built with:
 - Tailwind CSS
 - Supabase (Auth + Database)
 
+## Data Sources
+
+AInay uses the following open data sources for medication information:
+
+| Dataset | Source | Description |
+| ------- | ------ | ----------- |
+| **List of Registered Drugs** | [Philippine FDA](https://verification.fda.gov.ph/drug_productslist.php) | Official database of FDA-registered drugs in the Philippines for medicine recognition and validation |
+| **Drug-Drug Interactions (DDI)** | [Kaggle - Shayan Husain](https://www.kaggle.com/datasets/shayanhusain/drug-drug-interactions-management-and-safer-alters) | Drug interaction data with severity levels, mechanisms, clinical effects, and safer alternatives |
+| **Drug-Food Interactions (DFI)** | [Kaggle - Shayan Husain](https://www.kaggle.com/datasets/shayanhusain/drug-food-interactions-dataset) | Food interaction warnings for medications |
+
+> **Note**: This data is for informational purposes only and should not replace professional medical advice. Always consult a healthcare provider for medication decisions.
+
 ## Environment Setup
 
 Create an `.env.local` file in the project root:

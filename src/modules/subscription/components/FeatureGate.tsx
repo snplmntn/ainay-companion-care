@@ -152,3 +152,4 @@ export function LockedBadge({ className }: { className?: string }) {
     </div>
   );
 }
+

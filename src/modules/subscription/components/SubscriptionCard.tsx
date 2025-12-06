@@ -208,3 +208,4 @@ export function SubscriptionBadge({ className }: { className?: string }) {
     </span>
   );
 }
+

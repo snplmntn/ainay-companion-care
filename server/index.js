@@ -38,6 +38,8 @@ import {
   checkTelegramLinked,
   unlinkTelegramForUser,
   sendTestTelegramNotification,
+  processWebhookUpdate,
+  isWebhookEnabled,
 } from "./services/telegramBot.js";
 import {
   getNotificationStats,
@@ -1115,6 +1117,38 @@ app.post(
   }
 );
 
+/**
+ * Telegram Webhook endpoint - receives updates from Telegram
+ * POST /api/telegram/webhook
+ * This is called by Telegram when using webhook mode (production)
+ */
+app.post("/api/telegram/webhook", async (req, res) => {
+  try {
+    if (!isTelegramConfigured()) {
+      return res.status(503).json({ error: "Telegram bot not configured" });
+    }
+
+    if (!isWebhookEnabled()) {
+      console.log("[Telegram] Received webhook but not in webhook mode");
+      return res.status(200).json({ ok: true }); // Still return 200 to prevent Telegram retries
+    }
+
+    // Process the update
+    const update = req.body;
+    
+    if (update) {
+      await processWebhookUpdate(update);
+    }
+
+    // Always respond with 200 to Telegram to acknowledge receipt
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    console.error("[Telegram] Webhook processing error:", error);
+    // Still return 200 to prevent Telegram from retrying
+    res.status(200).json({ ok: true });
+  }
+});
+
 // ============================================
 // Cron Job - Check for missed doses
 // TIERED: Runs every 30 seconds for demo, check push at 30s, 1min, telegram at 1.5min, email at 3min
@@ -1729,6 +1763,7 @@ Telegram Bot Endpoints:
   GET  /api/telegram/check/:userId - Check if user has Telegram linked
   POST /api/telegram/unlink       - Unlink Telegram from account
   POST /api/telegram/test         - Send a test Telegram notification
+  POST /api/telegram/webhook      - Webhook endpoint (production only)
 
 Patient Reminder Endpoints:
   GET  /api/reminders/status            - Get patient reminder service status
@@ -1763,7 +1798,8 @@ Health:
   if (isTelegramConfigured()) {
     const telegramStarted = await startTelegramBot();
     if (telegramStarted) {
-      console.log("✅ Telegram bot started and listening for messages\n");
+      const telegramMode = getTelegramStatus().mode;
+      console.log(`✅ Telegram bot started in ${telegramMode.toUpperCase()} mode\n`);
     }
   }
 
@@ -1809,6 +1845,7 @@ Health:
     console.log("⚠️  TELEGRAM BOT not configured. Add to .env:");
     console.log("   TELEGRAM_BOT_TOKEN=your-bot-token-from-botfather");
     console.log("   TELEGRAM_BOT_USERNAME=YourBotUsername");
+    console.log("   TELEGRAM_WEBHOOK_URL=https://your-server.onrender.com (for production)");
     console.log("   Create a bot via @BotFather on Telegram\n");
   }
 

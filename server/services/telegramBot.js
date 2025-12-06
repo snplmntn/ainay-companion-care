@@ -8,6 +8,7 @@
 // 1. Create a bot via @BotFather on Telegram
 // 2. Get your bot token
 // 3. Add TELEGRAM_BOT_TOKEN to your .env file
+// 4. For production (webhooks): Set TELEGRAM_WEBHOOK_URL
 // ============================================
 
 import TelegramBot from 'node-telegram-bot-api';
@@ -16,10 +17,13 @@ import { supabase, isSupabaseConfigured } from './supabase.js';
 // Configuration
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || 'AInayBot';
+const WEBHOOK_URL = process.env.TELEGRAM_WEBHOOK_URL || ''; // e.g., https://your-server.onrender.com/api/telegram/webhook
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 // Bot instance (lazy initialized)
 let bot = null;
 let isPolling = false;
+let isWebhookMode = false;
 
 // Track acknowledged notifications (in-memory, cleared on restart)
 // Key: `${chatId}_${messageId}`, Value: timestamp when acknowledged
@@ -43,8 +47,11 @@ function getBot() {
 }
 
 /**
- * Start the bot with polling (for receiving messages)
+ * Start the bot with webhooks (production) or polling (development)
  * Call this once when the server starts
+ * 
+ * PRODUCTION: Uses webhooks to avoid 409 Conflict errors from multiple instances
+ * DEVELOPMENT: Uses polling for easier local testing
  */
 export async function startTelegramBot() {
   if (!isTelegramConfigured()) {
@@ -52,19 +59,43 @@ export async function startTelegramBot() {
     return false;
   }
 
-  if (isPolling) {
-    console.log('[Telegram] Bot already polling');
+  if (isPolling || isWebhookMode) {
+    console.log('[Telegram] Bot already running');
     return true;
   }
 
   try {
-    // Create bot with polling enabled
-    bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
-    isPolling = true;
+    // In production with webhook URL configured, use webhook mode
+    // Otherwise fall back to polling (for development)
+    const useWebhooks = IS_PRODUCTION && WEBHOOK_URL;
+    
+    if (useWebhooks) {
+      console.log('[Telegram] Starting in WEBHOOK mode (production)');
+      // Create bot WITHOUT polling - we'll receive updates via webhook endpoint
+      bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
+      
+      // Set the webhook URL with Telegram
+      const webhookPath = '/api/telegram/webhook';
+      const fullWebhookUrl = WEBHOOK_URL.endsWith(webhookPath) 
+        ? WEBHOOK_URL 
+        : `${WEBHOOK_URL}${webhookPath}`;
+      
+      await bot.setWebHook(fullWebhookUrl);
+      isWebhookMode = true;
+      
+      const botInfo = await bot.getMe();
+      console.log(`[Telegram] Bot started in webhook mode: @${botInfo.username}`);
+      console.log(`[Telegram] Webhook URL: ${fullWebhookUrl}`);
+    } else {
+      console.log('[Telegram] Starting in POLLING mode (development)');
+      // Create bot with polling enabled (for local development only)
+      bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+      isPolling = true;
 
-    // Get bot info
-    const botInfo = await bot.getMe();
-    console.log(`[Telegram] Bot started: @${botInfo.username}`);
+      // Get bot info
+      const botInfo = await bot.getMe();
+      console.log(`[Telegram] Bot started: @${botInfo.username}`);
+    }
 
     // Handle /start command - user initiates linking
     bot.onText(/\/start(.*)/, async (msg, match) => {
@@ -288,19 +319,61 @@ export async function startTelegramBot() {
   } catch (error) {
     console.error('[Telegram] Failed to start bot:', error.message);
     isPolling = false;
+    isWebhookMode = false;
     return false;
   }
 }
 
 /**
- * Stop the bot polling
+ * Stop the bot (polling or webhook)
  */
-export function stopTelegramBot() {
-  if (bot && isPolling) {
-    bot.stopPolling();
+export async function stopTelegramBot() {
+  if (bot) {
+    if (isPolling) {
+      bot.stopPolling();
+      console.log('[Telegram] Polling stopped');
+    }
+    if (isWebhookMode) {
+      try {
+        // Remove webhook when shutting down
+        await bot.deleteWebHook();
+        console.log('[Telegram] Webhook removed');
+      } catch (e) {
+        console.error('[Telegram] Failed to remove webhook:', e.message);
+      }
+    }
     isPolling = false;
+    isWebhookMode = false;
+    bot = null;
     console.log('[Telegram] Bot stopped');
   }
+}
+
+/**
+ * Process incoming webhook update from Telegram
+ * This is called by the Express route handler for /api/telegram/webhook
+ */
+export async function processWebhookUpdate(update) {
+  if (!bot) {
+    console.error('[Telegram] Bot not initialized - cannot process webhook update');
+    return false;
+  }
+  
+  try {
+    // Process the update through the bot instance
+    bot.processUpdate(update);
+    return true;
+  } catch (error) {
+    console.error('[Telegram] Error processing webhook update:', error.message);
+    return false;
+  }
+}
+
+/**
+ * Check if bot is running in webhook mode
+ */
+export function isWebhookEnabled() {
+  return isWebhookMode;
 }
 
 /**
@@ -782,7 +855,10 @@ export function getTelegramStatus() {
   return {
     configured: isTelegramConfigured(),
     polling: isPolling,
+    webhook: isWebhookMode,
+    webhookUrl: WEBHOOK_URL || null,
     botUsername: BOT_USERNAME,
+    mode: isWebhookMode ? 'webhook' : (isPolling ? 'polling' : 'stopped'),
   };
 }
 

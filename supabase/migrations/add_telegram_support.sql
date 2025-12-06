@@ -96,3 +96,4 @@ END $$;
 GRANT EXECUTE ON FUNCTION public.cleanup_expired_telegram_codes() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cleanup_expired_telegram_codes() TO service_role;
 
+

@@ -15,3 +15,4 @@ CREATE POLICY "Patients can view linked companion profiles"
     )
   );
 
+

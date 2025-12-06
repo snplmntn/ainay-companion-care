@@ -1,8 +1,11 @@
 // ============================================
 // Drug-to-Food Interactions Service
 // Provides food interaction data for medications
-// Source: DrugBank 6.0 Knowledge Base
 // OPTIMIZED: Added prefix index for faster fuzzy matching
+//
+// DATA SOURCE:
+// Drug-Food Interactions Dataset (Kaggle)
+// https://www.kaggle.com/datasets/shayanhusain/drug-food-interactions-dataset
 // ============================================
 
 /**
@@ -347,7 +350,7 @@ export async function buildFoodInteractionsContext(
     context += "\n";
   }
 
-  context += `\nWhen discussing these medications or diet/nutrition topics, proactively inform the user about relevant food interactions. This information is sourced from DrugBank 6.0 (Knox C, Wilson M, et al. 2024).`;
+  context += `\nWhen discussing these medications or diet/nutrition topics, proactively inform the user about relevant food interactions. Data source: Drug-Food Interactions Dataset (Kaggle).`;
 
   return context;
 }

@@ -28,3 +28,4 @@ export function getAdherenceLevel(
 export function getAdherenceColor(rate: number): string {
   return ADHERENCE_COLORS[getAdherenceLevel(rate)];
 }
+

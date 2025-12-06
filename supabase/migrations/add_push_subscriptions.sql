@@ -39,3 +39,4 @@ CREATE POLICY "Service role can manage all push subscriptions"
 -- Add comment
 COMMENT ON TABLE push_subscriptions IS 'Stores web push notification subscriptions for browser notifications';
 
+

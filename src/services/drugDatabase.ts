@@ -2,6 +2,10 @@
 // Uses the cleaned_drug_database.csv for medicine recognition and validation
 // OPTIMIZED: Synchronous index building with Promise-based ready state
 // ENHANCED: Fuzzy matching with Levenshtein distance for voice recognition
+//
+// DATA SOURCE:
+// Philippine FDA - List of Registered Drugs
+// https://verification.fda.gov.ph/drug_productslist.php
 
 export interface Drug {
   regId: string;

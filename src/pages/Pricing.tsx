@@ -18,6 +18,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Navigation } from "@/components/Navigation";
+import { useApp } from "@/contexts/AppContext";
 import {
   useSubscription,
   SUBSCRIPTION_PLANS,
@@ -58,12 +59,15 @@ const FEATURE_COMPARISON = [
 
 export default function Pricing() {
   const navigate = useNavigate();
+  const { userRole, isAuthenticated } = useApp();
+  const isLoggedIn = !!userRole || isAuthenticated;
   const { tier, startProCheckout, simulateProUpgrade, downgradeToFree, isPro } =
     useSubscription();
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serverAvailable, setServerAvailable] = useState<boolean | null>(null);
-  const [showComparison, setShowComparison] = useState(false);
+  // Show comparison by default for unauthorized users
+  const [showComparison, setShowComparison] = useState(!isLoggedIn);
 
   // Check if payment server is running
   useEffect(() => {
@@ -151,9 +155,9 @@ export default function Pricing() {
   };
 
   const handleContactUs = () => {
-    // Open email or contact form
+    // Open email for enterprise inquiries
     window.location.href =
-      "mailto:enterprise@ainay.care?subject=Enterprise%20Plan%20Inquiry";
+      "mailto:2136seanpaul@gmail.com?subject=AInay%20Enterprise%20Plan%20Inquiry";
   };
 
   const isCurrentPlan = (planId: SubscriptionTier) => tier === planId;
@@ -167,7 +171,7 @@ export default function Pricing() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 pb-24 lg:pb-8 lg:ml-20 xl:ml-24">
+    <div className={`min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 pb-24 lg:pb-8 ${isLoggedIn ? 'lg:ml-20 xl:ml-24' : ''}`}>
       {/* Header */}
       <header className="relative overflow-hidden bg-gradient-to-br from-coral-500 via-coral-600 to-rose-600 text-white px-6 py-10 rounded-b-[2.5rem]">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIj48cGF0aCBkPSJNMzYgMzRjMC0yLjIxLTEuNzktNC00LTRzLTQgMS43OS00IDQgMS43OSA0IDQgNCA0LTEuNzkgNC00eiIvPjwvZz48L2c+PC9zdmc+')] opacity-30"></div>
@@ -176,12 +180,12 @@ export default function Pricing() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => navigate(-1)}
+              onClick={() => isLoggedIn ? navigate(-1) : navigate("/")}
               className="text-white hover:bg-white/20 rounded-full"
             >
               <ArrowLeft className="w-6 h-6" />
             </Button>
-            <div>
+            <div className="flex-1">
               <h1 className="text-3xl font-bold tracking-tight">
                 Choose Your Plan
               </h1>
@@ -189,6 +193,16 @@ export default function Pricing() {
                 Simple pricing, powerful care
               </p>
             </div>
+            {!isLoggedIn && (
+              <Button
+                variant="secondary"
+                size="lg"
+                className="rounded-full font-semibold"
+                onClick={() => navigate("/login?mode=signup")}
+              >
+                Get Started
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -628,8 +642,24 @@ export default function Pricing() {
           </div>
         )}
 
-        {/* Payment Methods */}
+        {/* Payment Methods - Powered by PayRex */}
         <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 shadow-lg border mb-6">
+          {/* PayRex Badge - Clickable */}
+          <a
+            href="https://www.payrexhq.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 mb-4 group hover:opacity-80 transition-opacity"
+          >
+            <Shield className="w-5 h-5 text-emerald-500" />
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+              Secure Payments Powered by
+            </span>
+            <span className="text-lg font-bold bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent group-hover:underline">
+              PayRex
+            </span>
+          </a>
+          
           <h3 className="font-semibold text-slate-900 dark:text-white mb-4 text-center">
             Accepted Payment Methods
           </h3>
@@ -637,7 +667,7 @@ export default function Pricing() {
             <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-700 rounded-xl">
               <CreditCard className="w-4 h-4 text-slate-600 dark:text-slate-300" />
               <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Cards
+                Visa / Mastercard
               </span>
             </div>
             <div className="px-4 py-2.5 bg-blue-50 dark:bg-blue-900/30 rounded-xl">
@@ -654,6 +684,23 @@ export default function Pricing() {
               <span className="text-sm font-semibold text-purple-600 dark:text-purple-400">
                 Maya
               </span>
+            </div>
+            <div className="px-4 py-2.5 bg-cyan-50 dark:bg-cyan-900/30 rounded-xl">
+              <span className="text-sm font-semibold text-cyan-600 dark:text-cyan-400">
+                QRPH
+              </span>
+            </div>
+          </div>
+
+          {/* Security Trust Badges */}
+          <div className="flex items-center justify-center gap-4 mt-5 pt-4 border-t border-slate-100 dark:border-slate-700">
+            <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+              <Shield className="w-4 h-4 text-emerald-500" />
+              <span className="text-xs font-medium">PCI DSS Compliant</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+              <Shield className="w-4 h-4 text-emerald-500" />
+              <span className="text-xs font-medium">256-bit SSL Encryption</span>
             </div>
           </div>
         </div>
@@ -687,16 +734,17 @@ export default function Pricing() {
                 Is my payment secure?
               </p>
               <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-                Absolutely. We use bank-level encryption and never store your
-                card details directly.
+                Absolutely. We use <span className="font-semibold text-indigo-600 dark:text-indigo-400">PayRex</span>, 
+                a BSP-licensed payment gateway with bank-level encryption. We never store your 
+                card details directly — all transactions are PCI DSS compliant.
               </p>
             </div>
           </div>
         </div>
       </main>
 
-      {/* Navigation */}
-      <Navigation />
+      {/* Navigation - Only show when logged in */}
+      {isLoggedIn && <Navigation />}
     </div>
   );
 }

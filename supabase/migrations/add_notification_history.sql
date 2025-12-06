@@ -88,3 +88,4 @@ COMMENT ON COLUMN public.notification_history.type IS
 -- FROM information_schema.columns 
 -- WHERE table_name = 'notification_history';
 
+

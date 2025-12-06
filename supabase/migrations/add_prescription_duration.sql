@@ -33,3 +33,4 @@ CREATE INDEX IF NOT EXISTS idx_medications_end_date ON public.medications(end_da
 CREATE INDEX IF NOT EXISTS idx_medications_active_end_date ON public.medications(is_active, end_date) 
 WHERE is_active = TRUE AND end_date IS NOT NULL;
 
+

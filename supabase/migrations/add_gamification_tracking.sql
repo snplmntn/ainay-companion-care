@@ -163,3 +163,4 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 GRANT EXECUTE ON FUNCTION public.update_user_streak(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.record_daily_adherence(UUID, DATE, INTEGER, INTEGER) TO authenticated;
 
+

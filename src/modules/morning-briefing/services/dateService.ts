@@ -147,3 +147,4 @@ export function formatDateForBriefing(date: Date = new Date()): string {
   return `Today is ${ctx.fullDate}. ${ctx.weekContext}`;
 }
 
+

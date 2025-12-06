@@ -33,6 +33,8 @@ services:
         sync: false
       - key: TELEGRAM_BOT_USERNAME
         value: AInayBot
+      - key: TELEGRAM_WEBHOOK_URL
+        sync: false # Set to your Render URL, e.g., https://ainay-server.onrender.com
       # Push Notifications (VAPID)
       - key: VAPID_PUBLIC_KEY
         sync: false

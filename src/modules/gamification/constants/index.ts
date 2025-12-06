@@ -59,3 +59,4 @@ export const getStreakMessage = (streak: number): string => {
   return `${streak} Day Streak!`;
 };
 
+

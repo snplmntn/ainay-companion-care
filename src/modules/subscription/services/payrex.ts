@@ -244,3 +244,4 @@ export function getPayRexModeMessage(): string {
 
   return "PayRex mode unknown - Please verify your API key.";
 }
+

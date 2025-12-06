@@ -394,3 +394,4 @@ export function generateInsights(analytics: OverallAnalytics): string[] {
   return insights;
 }
 
+

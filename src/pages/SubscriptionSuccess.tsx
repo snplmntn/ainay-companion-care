@@ -169,8 +169,8 @@ export default function SubscriptionSuccess() {
 
           <p className="text-xs text-muted-foreground mt-6">
             Need help?{" "}
-            <a href="mailto:support@ainay.care" className="text-primary hover:underline">
-              support@ainay.care
+            <a href="mailto:2136seanpaul@gmail.com" className="text-primary hover:underline">
+              2136seanpaul@gmail.com
             </a>
           </p>
         </div>
@@ -272,7 +272,7 @@ export default function SubscriptionSuccess() {
           }`}
         >
           Receipt sent to your email •{" "}
-          <a href="mailto:support@ainay.care" className="text-primary hover:underline">
+          <a href="mailto:2136seanpaul@gmail.com" className="text-primary hover:underline">
             Need help?
           </a>
         </p>

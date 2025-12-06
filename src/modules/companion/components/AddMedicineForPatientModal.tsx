@@ -279,10 +279,7 @@ export function AddMedicineForPatientModal({
         },
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
+      // Set camera open FIRST so the video element renders
       setIsCameraOpen(true);
     } catch (error) {
       console.error("Camera error:", error);
@@ -293,6 +290,16 @@ export function AddMedicineForPatientModal({
       });
     }
   }, [stopCamera]);
+
+  // Effect to connect stream to video element once it's mounted
+  useEffect(() => {
+    if (isCameraOpen && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch((err) => {
+        console.error("Video play error:", err);
+      });
+    }
+  }, [isCameraOpen]);
 
   // ============ VOICE FUNCTIONS ============
   const stopRecording = useCallback(() => {
